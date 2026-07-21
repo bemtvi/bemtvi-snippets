@@ -55,6 +55,22 @@ nx.test.describe("nxvim-snippets session", function()
     nx.test.expect(t:line(1)).to_be("hi and hi again")
   end)
 
+  nx.test.it("recomputes a tabstop transform live as you type the source", function(t)
+    t:cmd("enew")
+    t:feed("i")
+    -- $1's text, mirrored through an upcasing transform.
+    snip.expand("$1 -> ${1/(.*)/${1:/upcase}/}")
+    t:wait_for(function()
+      return snip.active()
+    end)
+    nx.test.expect(t:line(1)).to_be(" -> ")
+    t:feed("hey")
+    t:wait_for(function()
+      return t:line(1) == "hey -> HEY"
+    end)
+    nx.test.expect(t:line(1)).to_be("hey -> HEY")
+  end)
+
   nx.test.it("expands a placeholder body with its default text", function(t)
     t:cmd("enew")
     t:feed("i")

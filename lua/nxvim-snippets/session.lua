@@ -15,14 +15,29 @@
 
 local parser = require("nxvim-snippets.parser")
 local variables = require("nxvim-snippets.variables")
+local transform = require("nxvim-snippets.transform")
 
 local M = {}
 
 local NS = nx.ns.create("nxvim-snippets")
 
 -- The live session, or nil. Shape:
---   { buf, stops = { [index] = { marks = {id, ...} } }, order = {1,2,...,0}, pos, detach }
+--   { buf, stops = { [index] = { marks = { { id, transform? }, ... } } },
+--     order = {1,2,...,0}, pos, detach }
+-- Each occurrence mark carries an optional `transform` spec: a plain mirror copies the
+-- primary's text, a transformed occurrence (`${N/re/fmt/}`) renders the transform of it.
 local S = nil
+
+-- The primary (editable) occurrence of a stop: the first without a transform (a
+-- transformed occurrence is derived, never the caret target). Falls back to the first.
+local function primary_mark(stop)
+  for _, m in ipairs(stop.marks) do
+    if not m.transform then
+      return m
+    end
+  end
+  return stop.marks[1]
+end
 
 -- Split a (possibly multi-line) string into the line list nx.buf.set_text wants.
 local function split_lines(text)
@@ -92,16 +107,22 @@ local function do_sync()
   if not stop or #stop.marks < 2 then
     return
   end
-  local text = mark_text(S.buf, stop.marks[1])
+  local pm = primary_mark(stop)
+  local text = mark_text(S.buf, pm.id)
   if not text then
     return
   end
-  for i = 2, #stop.marks do
-    local r, c, er, ec = mark_range(S.buf, stop.marks[i])
-    if r then
-      local cur = table.concat(nx.buf.text(S.buf, r, c, er, ec), "\n")
-      if cur ~= text then
-        nx.buf.set_text(S.buf, r, c, er, ec, split_lines(text))
+  for _, m in ipairs(stop.marks) do
+    if m ~= pm then
+      local r, c, er, ec = mark_range(S.buf, m.id)
+      if r then
+        -- A transformed occurrence renders the transform of the primary's text; a plain
+        -- mirror copies it verbatim.
+        local want = m.transform and transform.apply(text, m.transform) or text
+        local cur = table.concat(nx.buf.text(S.buf, r, c, er, ec), "\n")
+        if cur ~= want then
+          nx.buf.set_text(S.buf, r, c, er, ec, split_lines(want))
+        end
       end
     end
   end
@@ -151,7 +172,7 @@ local function goto_pos(pos)
   end
   S.pos = pos
   local stop = S.stops[S.order[pos]]
-  local r, c = mark_range(S.buf, stop.marks[1])
+  local r, c = mark_range(S.buf, primary_mark(stop).id)
   if r then
     nx.win.set_cursor(0, r + 1, c) -- set_cursor is 1-based row
   end
@@ -211,13 +232,14 @@ function M.expand(buf, sr, sc, er, ec, body, ctx)
       for _, span in ipairs(occs) do
         local r, c = abs_pos(text, span[1], sr, sc)
         local er2, ec2 = abs_pos(text, span[2], sr, sc)
-        marks[#marks + 1] = nx.buf.set_extmark(buf, NS, r, c, {
+        local id = nx.buf.set_extmark(buf, NS, r, c, {
           end_row = er2,
           end_col = ec2,
           right_gravity = false,
           end_right_gravity = true,
           hl_group = "SnippetTabstop",
         })
+        marks[#marks + 1] = { id = id, transform = span.transform }
       end
       stops[idx] = { marks = marks }
     end

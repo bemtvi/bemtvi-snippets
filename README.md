@@ -66,7 +66,15 @@ The LSP / VSCode syntax:
 | a repeated `$1` | a mirror — every occurrence renders index 1's text |
 | `$TM_FILENAME` `${CURRENT_YEAR}` | a variable (resolved at expand) |
 | `${VAR:fallback}` | a variable with a default |
+| `${1/regex/format/opts}` | a transform (live for a tabstop, static for a variable) |
 | `\$` `\}` `\\` | escapes |
+
+**Transforms** run the regex on nxvim's native engine (`nx.regex`) and build the
+replacement from the `format` mini-language: `$1` / `${1}` group references,
+`${1:/upcase}` `/downcase` `/capitalize` `/pascalcase` `/camelcase` case ops,
+`${1:+if}` / `${1:-else}` / `${1:?if:else}` conditionals, and the `g` / `i`
+options. A tabstop transform (`${1/…/…/}`) recomputes **live** as you type the
+source tabstop.
 
 Variables resolved: the `CURRENT_*` date/clock family, `TM_FILENAME*` /
 `TM_DIRECTORY` / `TM_FILEPATH`, `TM_LINE_NUMBER` / `TM_LINE_INDEX`,
@@ -87,18 +95,15 @@ variable falls back to its `${VAR:default}` (or empty), matching VSCode.
 - `snip.abort()` — end the active session.
 - `snip.active()` — whether a session is live.
 
-## Coverage & the one gap
+## Coverage
 
 Against the full **friendly-snippets** collection (9,422 snippets across 127
-filetypes): **9,341 (99.1%) parse and expand**, and the remaining **81 (0.9%) use
-regex transforms** (`${1/regex/format/opts}`), which this engine **refuses loudly**
-rather than mis-expanding.
+filetypes): **all 9,422 parse, and 9,420 (99.98%) lay out and expand**. The 2 that
+don't use a regex **lookbehind** (`(?<=…)`), which nxvim's regex engine (the Rust
+`regex` crate) can't compile — those **fail loud** with a clear error rather than
+mis-expanding.
 
-Transforms are a live regex mirror — they need editor machinery this scaffold
-doesn't build yet. They're a documented, fail-loud gap (never a silent
-misbehavior), and the natural next milestone.
-
-Also scaffold-level today: a placeholder's default text isn't auto-*selected*
+Remaining scaffold-level limits: a placeholder's default text isn't auto-*selected*
 (nxvim has no vim-style Select mode), so jumping to `${1:default}` places the caret
 at its start rather than selecting the word. Continuation lines aren't re-indented
 to the anchor.

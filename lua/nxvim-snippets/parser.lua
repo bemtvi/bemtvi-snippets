@@ -63,7 +63,187 @@ local function read_name(r)
   return r.s:sub(start, r.i - 1)
 end
 
+local transform = require("nxvim-snippets.transform")
+
 local parse_nodes -- forward declaration (recursive with the braced parsers)
+
+-- ----- transform parsing (${N/regex/format/options}) ------------------------
+
+-- Read the `regex` part (positioned just after the opening `/`), up to the unescaped
+-- `/` that ends it (consumed). `\/` becomes a literal slash; every other `\x` is kept
+-- verbatim for the regex engine.
+local function read_regex(r)
+  local buf = {}
+  while true do
+    local b = peek(r)
+    if b == nil then
+      error("nxvim-snippets: unterminated transform regex")
+    elseif b == 92 then
+      advance(r)
+      local e = advance(r)
+      if e == 47 then
+        buf[#buf + 1] = "/"
+      else
+        buf[#buf + 1] = "\\" .. (e and string.char(e) or "")
+      end
+    elseif b == 47 then
+      advance(r)
+      break
+    else
+      buf[#buf + 1] = string.char(advance(r))
+    end
+  end
+  return table.concat(buf)
+end
+
+-- Read format text until (and consuming) the first unescaped byte in `stops`. Honors
+-- \n \t \r and \<char> escapes.
+local function read_format_text(r, stops)
+  local set = {}
+  for _, s in ipairs(stops) do
+    set[s] = true
+  end
+  local buf = {}
+  while true do
+    local b = peek(r)
+    if b == nil then
+      error("nxvim-snippets: unterminated transform format")
+    elseif set[b] then
+      advance(r)
+      break
+    elseif b == 92 then
+      advance(r)
+      local e = advance(r)
+      if e == 110 then
+        buf[#buf + 1] = "\n"
+      elseif e == 116 then
+        buf[#buf + 1] = "\t"
+      elseif e == 114 then
+        buf[#buf + 1] = "\r"
+      else
+        buf[#buf + 1] = e and string.char(e) or "\\"
+      end
+    else
+      buf[#buf + 1] = string.char(advance(r))
+    end
+  end
+  return table.concat(buf)
+end
+
+-- Parse a `${N...}` format group (positioned just past the `{`). Returns a `group` node:
+--   ${N}          -> plain reference
+--   ${N:/upcase}  -> a case op
+--   ${N:+if}      -> if group matched
+--   ${N:-else} / ${N:else} -> if group empty
+--   ${N:?if:else} -> conditional
+local function parse_format_group(r)
+  local index = read_int(r)
+  local b = advance(r) -- } or :
+  if b == 125 then
+    return { kind = "group", index = index }
+  elseif b == 58 then
+    local c = peek(r)
+    if c == 47 then -- :/op
+      advance(r)
+      local op = read_name(r)
+      if advance(r) ~= 125 then
+        error("nxvim-snippets: malformed transform `${N:/op}`")
+      end
+      return { kind = "group", index = index, op = op }
+    elseif c == 43 then -- :+if
+      advance(r)
+      return { kind = "group", index = index, if_text = read_format_text(r, { 125 }) }
+    elseif c == 45 then -- :-else
+      advance(r)
+      return { kind = "group", index = index, else_text = read_format_text(r, { 125 }) }
+    elseif c == 63 then -- :?if:else
+      advance(r)
+      local iff = read_format_text(r, { 58 })
+      local els = read_format_text(r, { 125 })
+      return { kind = "group", index = index, if_text = iff, else_text = els }
+    else -- :else
+      return { kind = "group", index = index, else_text = read_format_text(r, { 125 }) }
+    end
+  end
+  error("nxvim-snippets: malformed transform format group")
+end
+
+-- Parse the `format` part (positioned just after the second `/`), up to the unescaped
+-- `/` that ends it (consumed). Returns a list of text / group nodes.
+local function parse_format(r)
+  local nodes, buf = {}, {}
+  local function flush()
+    if #buf > 0 then
+      nodes[#nodes + 1] = { kind = "text", text = table.concat(buf) }
+      buf = {}
+    end
+  end
+  while true do
+    local b = peek(r)
+    if b == nil then
+      error("nxvim-snippets: unterminated transform format")
+    elseif b == 47 then
+      advance(r)
+      break
+    elseif b == 92 then
+      advance(r)
+      local e = advance(r)
+      if e == 110 then
+        buf[#buf + 1] = "\n"
+      elseif e == 116 then
+        buf[#buf + 1] = "\t"
+      elseif e == 114 then
+        buf[#buf + 1] = "\r"
+      else
+        buf[#buf + 1] = e and string.char(e) or "\\"
+      end
+    elseif b == 36 then -- $
+      advance(r)
+      local nb = peek(r)
+      if is_digit(nb) then
+        flush()
+        nodes[#nodes + 1] = { kind = "group", index = read_int(r) }
+      elseif nb == 123 then
+        advance(r)
+        flush()
+        nodes[#nodes + 1] = parse_format_group(r)
+      else
+        buf[#buf + 1] = "$"
+      end
+    else
+      buf[#buf + 1] = string.char(advance(r))
+    end
+  end
+  flush()
+  return nodes
+end
+
+-- Read the `options` part (positioned just after the third `/`) up to (and consuming)
+-- the closing `}`. A short run of flag letters (`g`, `i`, `m`, …).
+local function read_options(r)
+  local buf = {}
+  while true do
+    local b = peek(r)
+    if b == nil then
+      error("nxvim-snippets: unterminated transform (missing `}`)")
+    elseif b == 125 then
+      advance(r)
+      break
+    else
+      buf[#buf + 1] = string.char(advance(r))
+    end
+  end
+  return table.concat(buf)
+end
+
+-- Parse a whole transform, positioned just after the first `/`. Returns
+-- `{ regex, format, options }`.
+local function parse_transform(r)
+  local regex = read_regex(r)
+  local format = parse_format(r)
+  local options = read_options(r)
+  return { regex = regex, format = format, options = options }
+end
 
 -- Parse the alternatives of a `${N|a,b,c|}` choice, positioned just past the `|`.
 -- Returns the list of alternative strings; leaves the cursor just past the closing `|`.
@@ -109,10 +289,8 @@ local function parse_braced(r)
         error("nxvim-snippets: choice `${N|...|` must be followed by `}`")
       end
       return { kind = "tabstop", index = index, children = {}, choices = choices }
-    elseif nb == 47 then -- /  transform (deferred, fail loud)
-      error(
-        "nxvim-snippets: tabstop transforms `${" .. index .. "/.../.../}` are not supported yet"
-      )
+    elseif nb == 47 then -- /  transform
+      return { kind = "tabstop", index = index, children = {}, transform = parse_transform(r) }
     else
       error("nxvim-snippets: malformed `${" .. index .. "...}` (unexpected byte)")
     end
@@ -124,8 +302,8 @@ local function parse_braced(r)
     elseif nb == 58 then -- :  variable with default
       local children = parse_nodes(r, true)
       return { kind = "var", name = name, children = children }
-    elseif nb == 47 then -- /  variable transform (deferred, fail loud)
-      error("nxvim-snippets: variable transforms `${" .. name .. "/.../}` are not supported yet")
+    elseif nb == 47 then -- /  variable transform
+      return { kind = "var", name = name, children = {}, transform = parse_transform(r) }
     else
       error("nxvim-snippets: malformed `${" .. name .. "...}` (unexpected byte)")
     end
@@ -234,12 +412,38 @@ local function collect_defaults(nodes, defaults)
   end
 end
 
+-- Render a node list to a plain STRING (variables resolved, nested tabstop defaults
+-- inlined) — the source value a transform is applied to.
+local function text_of(nodes, resolve, seen)
+  seen = seen or {}
+  local parts = {}
+  for _, n in ipairs(nodes or {}) do
+    if n.kind == "text" then
+      parts[#parts + 1] = n.text
+    elseif n.kind == "var" then
+      local v = resolve and resolve(n.name)
+      if n.transform then
+        v = transform.apply(v or "", n.transform)
+      elseif v == nil or v == "" then
+        v = text_of(n.children, resolve, seen)
+      end
+      parts[#parts + 1] = v or ""
+    elseif n.kind == "tabstop" and not seen[n.index] then
+      seen[n.index] = true
+      parts[#parts + 1] = text_of(n.children, resolve, seen)
+      seen[n.index] = nil
+    end
+  end
+  return table.concat(parts)
+end
+
 -- layout(ast, resolve) -> text, stops
 --   `resolve(name)` returns a variable's value string, or nil to fall back to its
 --   default node list. `text` is the concrete expansion; `stops` is
---   `{ [index] = { {start_byte, end_byte}, ... } }` — every occurrence's byte span in
---   `text` (0-based, end-exclusive), so the session can anchor a growing extmark over
---   each. Byte offsets, matching nxvim's text model.
+--   `{ [index] = { { start_byte, end_byte, transform? }, ... } }` — every occurrence's
+--   byte span in `text` (0-based, end-exclusive) plus its transform spec when it's a
+--   `${N/re/fmt/}` occurrence (so the session recomputes it live). Byte offsets,
+--   matching nxvim's text model.
 function M.layout(ast, resolve)
   local defaults = {}
   collect_defaults(ast, defaults)
@@ -248,18 +452,34 @@ function M.layout(ast, resolve)
     parts[#parts + 1] = s
     len = len + #s
   end
+  -- `expanding` guards a self-referential tabstop default (`${1:${1:…}}`): while an
+  -- index's default is being laid out, a nested reference to the same index renders
+  -- empty instead of recursing forever.
+  local expanding = {}
   local function walk(nodes)
     for _, n in ipairs(nodes) do
       if n.kind == "text" then
         emit(n.text)
       elseif n.kind == "tabstop" then
         local s = len
-        walk(defaults[n.index] or {})
+        if n.transform then
+          -- A transformed occurrence renders the transform of the index's value (its
+          -- default, initially); the session re-applies it as the source tabstop changes.
+          emit(transform.apply(text_of(defaults[n.index] or {}, resolve), n.transform))
+        elseif not expanding[n.index] then
+          expanding[n.index] = true
+          walk(defaults[n.index] or {})
+          expanding[n.index] = nil
+        end
         stops[n.index] = stops[n.index] or {}
-        stops[n.index][#stops[n.index] + 1] = { s, len }
+        local occ = { s, len }
+        occ.transform = n.transform
+        stops[n.index][#stops[n.index] + 1] = occ
       elseif n.kind == "var" then
         local v = resolve and resolve(n.name)
-        if v ~= nil and v ~= "" then
+        if n.transform then
+          emit(transform.apply(v or "", n.transform))
+        elseif v ~= nil and v ~= "" then
           emit(v)
         else
           walk(n.children or {})
