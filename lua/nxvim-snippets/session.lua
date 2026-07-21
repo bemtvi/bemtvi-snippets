@@ -1,0 +1,237 @@
+-- The tabstop SESSION — expand a snippet body and drive the cursor through its
+-- tabstops, keeping mirrors in sync. This is where the core primitives compose:
+--
+--   nx.buf.set_text      (P1) splice the expansion over the trigger range, and update
+--                             each mirror inline as the active tabstop changes
+--   extmark gravity      (P2) anchor every tabstop occurrence as a *growing* range
+--                             (right_gravity=false / end_right_gravity=true) so text
+--                             typed into it is swallowed rather than landing outside
+--   nx.buf.attach        (P3) react to each edit to re-sync mirrors; tear down on a
+--                             wholesale reload (undo/redo/:e), where anchors are moot
+--   nx.win.set_cursor    (P5) jump the caret between tabstops
+--
+-- One session at a time (like the native engine). No snippet syntax lives in the core:
+-- the parser + this session are entirely plugin Lua over the generic seams.
+
+local parser = require("nxvim-snippets.parser")
+local variables = require("nxvim-snippets.variables")
+
+local M = {}
+
+local NS = nx.ns.create("nxvim-snippets")
+
+-- The live session, or nil. Shape:
+--   { buf, stops = { [index] = { marks = {id, ...} } }, order = {1,2,...,0}, pos, detach }
+local S = nil
+
+-- Split a (possibly multi-line) string into the line list nx.buf.set_text wants.
+local function split_lines(text)
+  local out, start = {}, 1
+  while true do
+    local nl = text:find("\n", start, true)
+    if not nl then
+      out[#out + 1] = text:sub(start)
+      break
+    end
+    out[#out + 1] = text:sub(start, nl - 1)
+    start = nl + 1
+  end
+  return out
+end
+
+-- Absolute (row, col) of byte offset `off` within `text` inserted at (sr, sc). 0-based
+-- row; col is a byte offset within its line. Later lines of the insertion start at
+-- col 0 (no re-indent in this scaffold).
+local function abs_pos(text, off, sr, sc)
+  local before = text:sub(1, off)
+  local nl, last = 0, 0
+  for i = 1, #before do
+    if before:byte(i) == 10 then
+      nl, last = nl + 1, i
+    end
+  end
+  if nl == 0 then
+    return sr, sc + off
+  end
+  return sr + nl, off - last
+end
+
+-- The current (row, col, end_row, end_col) of extmark `id`, or nil if it's gone.
+local function mark_range(buf, id)
+  local ms = nx.buf.extmarks(buf, NS, 0, -1, { details = true })
+  for _, m in ipairs(ms) do
+    if m[1] == id then
+      local d = m[4] or {}
+      return m[2], m[3], d.end_row or m[2], d.end_col or m[3]
+    end
+  end
+  return nil
+end
+
+-- The text currently spanned by extmark `id` (joined with `\n`), or nil.
+local function mark_text(buf, id)
+  local r, c, er, ec = mark_range(buf, id)
+  if not r then
+    return nil
+  end
+  return table.concat(nx.buf.text(buf, r, c, er, ec), "\n")
+end
+
+-- Re-sync every mirror of the ACTIVE tabstop to its primary occurrence's text. Called
+-- after each edit. Diff-guarded, so it converges: once mirrors equal the primary the
+-- next edit finds nothing to do (no infinite re-entry through on_bytes).
+-- Re-sync every mirror of the ACTIVE tabstop to its primary occurrence's text. Reads
+-- a consistent post-edit snapshot (it runs on its own tick, scheduled by
+-- `schedule_sync`), and only rewrites a mirror whose text differs — so it converges:
+-- the mirror edits it makes schedule one more pass that finds nothing to do.
+local function do_sync()
+  if not S then
+    return
+  end
+  local stop = S.stops[S.order[S.pos]]
+  if not stop or #stop.marks < 2 then
+    return
+  end
+  local text = mark_text(S.buf, stop.marks[1])
+  if not text then
+    return
+  end
+  for i = 2, #stop.marks do
+    local r, c, er, ec = mark_range(S.buf, stop.marks[i])
+    if r then
+      local cur = table.concat(nx.buf.text(S.buf, r, c, er, ec), "\n")
+      if cur ~= text then
+        nx.buf.set_text(S.buf, r, c, er, ec, split_lines(text))
+      end
+    end
+  end
+end
+
+-- Debounce a mirror sync onto the next tick: rapid keystrokes coalesce into one pass
+-- that reads the FINAL state, and the sync's own mirror edits (which re-fire on_bytes)
+-- schedule at most one follow-up pass, which the diff-guard makes a no-op. Reading on a
+-- separate tick sidesteps the extmark mirror's "positions as of chunk start" lag.
+local function schedule_sync()
+  if not S or S.sync_pending then
+    return
+  end
+  S.sync_pending = true
+  nx.on_next_tick(function()
+    if not S then
+      return
+    end
+    S.sync_pending = false
+    do_sync()
+  end)
+end
+
+-- Whether a session is live.
+function M.active()
+  return S ~= nil
+end
+
+-- Tear the session down: detach the change channel and drop the tabstop extmarks.
+function M.finish()
+  if not S then
+    return
+  end
+  if S.detach then
+    S.detach()
+  end
+  nx.buf.clear_namespace(S.buf, NS, 0, -1)
+  S = nil
+end
+
+-- Move the caret to the START of tab-order position `pos`'s primary occurrence. Ends
+-- the session when `pos` runs past the last stop.
+local function goto_pos(pos)
+  if pos > #S.order then
+    M.finish()
+    return
+  end
+  S.pos = pos
+  local stop = S.stops[S.order[pos]]
+  local r, c = mark_range(S.buf, stop.marks[1])
+  if r then
+    nx.win.set_cursor(0, r + 1, c) -- set_cursor is 1-based row
+  end
+  -- $0 (the final stop) is terminal: landing on it and jumping again ends the session.
+end
+
+-- Jump to the next (`dir == 1`) / previous (`dir == -1`) tabstop. Returns true if a
+-- session was live (so a keymap can decide whether to fall through). Ending on the
+-- last stop is still a successful jump.
+function M.jump(dir)
+  if not S then
+    return false
+  end
+  goto_pos(S.pos + dir)
+  return true
+end
+
+-- expand(buf, sr, sc, er, ec, body[, ctx]) — replace the range (sr,sc)..(er,ec) with
+-- `body` expanded (variables resolved via `ctx`), anchor its tabstops, and jump to the
+-- first. `body` may be a string (parsed) or a pre-parsed AST. Any prior session is
+-- ended first. Raises (fail loud) on a malformed / unsupported body.
+function M.expand(buf, sr, sc, er, ec, body, ctx)
+  M.finish()
+  local ast = type(body) == "string" and parser.parse(body) or body
+  local text, spans = parser.layout(ast, function(name)
+    return variables.resolve(name, ctx)
+  end)
+
+  -- Splice the expansion over the trigger range (P1).
+  nx.buf.set_text(buf, sr, sc, er, ec, split_lines(text))
+
+  -- Tab order: real stops ascending, then $0 last (if present).
+  local order = {}
+  for idx in pairs(spans) do
+    if idx ~= 0 then
+      order[#order + 1] = idx
+    end
+  end
+  table.sort(order)
+  if spans[0] then
+    order[#order + 1] = 0
+  end
+
+  -- The edit is queued; on the next tick the text is in the buffer, so anchor the
+  -- growing tabstop extmarks (P2) at the now-materialized positions, jump to the first
+  -- (P5), and start listening for edits to keep mirrors in sync (P3).
+  nx.on_next_tick(function()
+    if #order == 0 then
+      -- No tabstops: park the caret at the end of the insertion and stop.
+      local r, c = abs_pos(text, #text, sr, sc)
+      nx.win.set_cursor(0, r + 1, c)
+      return
+    end
+    local stops = {}
+    for idx, occs in pairs(spans) do
+      local marks = {}
+      for _, span in ipairs(occs) do
+        local r, c = abs_pos(text, span[1], sr, sc)
+        local er2, ec2 = abs_pos(text, span[2], sr, sc)
+        marks[#marks + 1] = nx.buf.set_extmark(buf, NS, r, c, {
+          end_row = er2,
+          end_col = ec2,
+          right_gravity = false,
+          end_right_gravity = true,
+          hl_group = "SnippetTabstop",
+        })
+      end
+      stops[idx] = { marks = marks }
+    end
+    S = { buf = buf, stops = stops, order = order, pos = 0, detach = nil }
+    S.detach = nx.buf.attach(buf, {
+      on_bytes = function()
+        schedule_sync()
+      end,
+      on_reload = function()
+        M.finish()
+      end,
+    })
+    goto_pos(1)
+  end)
+end
+
+return M
