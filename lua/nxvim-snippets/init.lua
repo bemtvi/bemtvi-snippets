@@ -19,7 +19,8 @@
 --
 -- Quick start (init.lua):
 --   local snip = require("nxvim-snippets")
---   snip.setup({})                                  -- registers the completion source
+--   snip.setup({})                  -- registers + auto-joins the completion source
+--   nx.complete.setup({})           -- enable completion however you like; snippets join
 --   snip.add("lua", { { trigger = "fn",
 --     body = "local function ${1:name}(${2:args})\n\t$0\nend" } })
 --   snip.load_vscode("/path/to/friendly-snippets")  -- optional: a whole collection
@@ -41,6 +42,10 @@ M.config = {
   -- either to `false` in `setup{}` to not install it and map `M.jump_next/prev` yourself.
   jump_next = "<C-j>",
   jump_prev = "<C-k>",
+  -- The completion source's own prefix gate: snippets show from this many typed chars.
+  -- Kept low (2) so short triggers like `lf` open the menu. The source auto-joins the
+  -- `nx.complete` engine with this gate — no need to list it in `nx.complete.setup`.
+  min_chars = 2,
 }
 
 -- Validate + store a snippet list for `ft`. Each entry needs a string `trigger` and a
@@ -131,7 +136,7 @@ function M.setup(opts)
 
   source.register(function(ft)
     return M.get(ft)
-  end)
+  end, M.config.min_chars)
 
   -- Map the jump keys in BOTH Insert and Select mode: a placeholder with a default is
   -- landed on in Select mode (so typing replaces it), and the jump keys must work there

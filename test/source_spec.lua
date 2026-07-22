@@ -8,10 +8,10 @@ nx.test.describe("nxvim-snippets completion source", function()
   nx.test.before_each(function()
     snip.abort()
     snip._byft = {}
+    -- `snip.setup` registers the source, which AUTO-JOINS the engine — the user just
+    -- enables completion (here with its buffer default) and never routes the source.
     snip.setup({})
-    -- Route the plugin's source into the completion engine (the user does this in
-    -- their config; the plugin doesn't hijack nx.complete).
-    nx.complete.setup({ sources = { { "nxvim-snippets", min_chars = 2 } } })
+    nx.complete.setup({})
   end)
 
   nx.test.it("offers a filetype's snippet and expands it on accept", function(t)
@@ -23,6 +23,25 @@ nx.test.describe("nxvim-snippets completion source", function()
     t:sleep(30)
     t:feed("<C-n>") -- select the first row
     t:feed("<C-y>") -- accept → the item's on_accept expands the snippet
+    t:wait_for(function()
+      return snip.active()
+    end)
+    nx.test.expect(t:line(1)).to_be("for i = 1, n do end")
+  end)
+
+  nx.test.it("auto-joins an engine that never listed it", function(t)
+    -- The plugin registers its source in `snip.setup` (before_each). Here the completion
+    -- engine is set up with ONLY `buffer` — the snippet source is never named — yet it
+    -- still contributes and expands, because registering a source activates it. This is
+    -- the whole point: a user enables `nx.complete` and the snippet source just works.
+    nx.complete.setup({ sources = { { "buffer" } } })
+    snip.add("lua", { { trigger = "forr", body = "for ${1:i} = 1, ${2:n} do$0 end" } })
+    t:cmd("enew")
+    t:cmd("set filetype=lua")
+    t:feed("ifo") -- a prefix that fuzzy-matches the (unlisted) snippet trigger "forr"
+    t:sleep(30)
+    t:feed("<C-n>")
+    t:feed("<C-y>")
     t:wait_for(function()
       return snip.active()
     end)
@@ -42,11 +61,10 @@ nx.test.describe("nxvim-snippets completion source", function()
   end)
 
   nx.test.it("a snippet trigger outranks a fuzzy buffer word", function(t)
-    -- Both `buffer` and the snippet source active; the snippet source's priority (90)
-    -- must rank its rows above plain buffer words (10) so an exact trigger isn't buried.
-    nx.complete.setup({
-      sources = { { "buffer", min_chars = 2 }, { "nxvim-snippets", min_chars = 2 } },
-    })
+    -- Both `buffer` and the auto-joined snippet source are active; the snippet source's
+    -- priority (5) must rank its rows above plain buffer words (0) so an exact trigger
+    -- isn't buried. Only `buffer` is listed — the snippet source joins on its own.
+    nx.complete.setup({ sources = { { "buffer", min_chars = 2 } } })
     snip.add("lua", { { trigger = "log", body = "LOG($1)$0" } })
     t:cmd("enew")
     t:cmd("set filetype=lua")

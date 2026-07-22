@@ -32,10 +32,14 @@ local function preview_doc(snip, ft)
   return fenced
 end
 
--- register(get) — install the source. `get(ft)` returns the snippet list to offer for
--- filetype `ft` (the caller merges ft-specific + global "all"). Idempotent-ish: calling
--- again re-registers the same-named source (the engine keeps the latest).
-function M.register(get)
+-- register(get, min_chars) — install the source. `get(ft)` returns the snippet list to
+-- offer for filetype `ft` (the caller merges ft-specific + global "all"). `min_chars` is
+-- the source's own prefix gate (how many chars before snippets show, default 2).
+-- Registering **activates** the source — it joins the live `nx.complete` engine on its
+-- own, so the user never lists it in `nx.complete.setup{ sources }` (that list is only
+-- for overriding these defaults). Idempotent-ish: calling again re-registers the
+-- same-named source (the engine keeps the latest).
+function M.register(get, min_chars)
   nx.complete.source({
     -- NOT "snippets" — that name is a reserved core built-in source.
     name = "nxvim-snippets",
@@ -45,6 +49,11 @@ function M.register(get)
     -- better buffer match. Override per entry with
     -- `nx.complete.setup{ sources = { { "nxvim-snippets", priority = N } } }`.
     priority = 5,
+    -- The source's own prefix gate (`snip.setup{ min_chars = … }`, default 2): snippets
+    -- show from this many typed chars, so short triggers like `lf` open the menu without
+    -- a buffer word's longer wait. Override per entry with
+    -- `nx.complete.setup{ sources = { { "nxvim-snippets", min_chars = N } } }`.
+    min_chars = min_chars or 2,
     -- Snippets are cheap in-memory data, so there's nothing to debounce — offer them
     -- as soon as the prefix changes (no lag before the row appears).
     debounce = 0,

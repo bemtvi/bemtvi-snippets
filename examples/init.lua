@@ -16,15 +16,16 @@ nx.plugins({
       local snip = require("nxvim-snippets")
 
       -- 1. Enable the engine + jump keys (<C-j> next, <C-k> previous by default).
+      --    `snip.setup` registers the snippet source, which AUTO-JOINS your completion
+      --    engine — you never list it (registering a source activates it).
       snip.setup({})
 
-      -- 2. Route the snippet source into completion, alongside the buffer word source.
-      --    (The plugin never hijacks your completion config — you opt its source in.)
-      --    `min_chars` is honored PER SOURCE: snippets offer from 2 chars (so short
-      --    triggers like `lf` open the menu) while buffer words wait for 3.
-      nx.complete.setup({
-        sources = { { "buffer", min_chars = 3 }, { "nxvim-snippets", min_chars = 2 } },
-      })
+      -- 2. Enable completion however you like — here just the buffer word source. The
+      --    snippet source is already in the engine from step 1; you don't route it.
+      --    `min_chars` is honored PER SOURCE: snippets offer from 2 chars (the plugin's
+      --    default, `snip.setup{ min_chars = … }`) so short triggers like `lf` open the
+      --    menu, while buffer words here wait for 3.
+      nx.complete.setup({ sources = { { "buffer", min_chars = 3 } } })
 
       -- 3. Register a few Lua snippets.
       --    TYPE (in the sample buffer, insert mode):  lf

@@ -38,8 +38,9 @@ Put the repo on your `runtimepath` (via your plugin manager, or `nx.plugins`).
 local snip = require("nxvim-snippets")
 snip.setup({})
 
--- Route the source into your completion engine (the plugin does NOT hijack it):
-nx.complete.setup({ sources = { { "buffer" }, { "nxvim-snippets" } } })
+-- Enable the completion engine however you like — the snippet source joins it
+-- automatically (registering a source activates it; there's nothing to route):
+nx.complete.setup({ sources = { { "buffer" } } })
 
 -- Add snippets inline …
 snip.add("lua", {
@@ -49,6 +50,12 @@ snip.add("lua", {
 -- … or load a whole VSCode collection (async — returns a promise):
 nx.await(snip.load_vscode("/path/to/friendly-snippets"))
 ```
+
+> The snippet source auto-joins your `nx.complete` engine as soon as it's registered
+> (even if you `nx.complete.setup{}` *before* loading this plugin). List
+> `{ "nxvim-snippets", min_chars = 2, priority = … }` in `sources` only to override its
+> options, and use `nx.complete.setup{ exclusive = true }` if you'd rather opt out of
+> auto-join and control the source list yourself.
 
 Type a trigger, accept the completion row (`<C-y>`), and you land in the snippet
 with the caret on the first tabstop. `<C-j>` / `<C-k>` jump to the next / previous
@@ -83,9 +90,10 @@ variable falls back to its `${VAR:default}` (or empty), matching VSCode.
 
 ## API
 
-- `snip.setup(opts)` — register the source + jump keymaps. `opts.jump_next` /
-  `opts.jump_prev` set the jump keys (or `false` to skip and map the functions
-  yourself).
+- `snip.setup(opts)` — register the source (it auto-joins `nx.complete`) + jump
+  keymaps. `opts.jump_next` / `opts.jump_prev` set the jump keys (or `false` to skip
+  and map the functions yourself). `opts.min_chars` (default 2) sets the source's own
+  prefix gate — how many typed chars before snippets show.
 - `snip.add(ft, list)` — register `{ trigger, body, description? }` entries for a
   filetype. The `"all"` filetype is offered for every buffer (VSCode's global scope).
 - `snip.load_vscode(dir)` — load a VSCode-format collection; returns a promise.
