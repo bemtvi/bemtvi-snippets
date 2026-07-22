@@ -38,7 +38,8 @@ nx.plugins({
         { trigger = "lf", body = "local function ${1:name}(${2:args})\n\t$0\nend" },
         -- A mirror: type once, both `${1:M}` occurrences update as you type.
         { trigger = "req", body = 'local ${1:mod} = require("${1:mod}")$0' },
-        -- A choice: <C-j>/typing picks from the alternatives' default (the first).
+        -- A choice: landing on it opens a DROPDOWN of the alternatives — <C-n>/<C-p>
+        -- to move, <CR> to pick (the pick replaces the value); <Tab> keeps the first.
         { trigger = "log", body = 'print("${1|debug,info,warn|}: " .. ${2:msg})$0' },
       })
 

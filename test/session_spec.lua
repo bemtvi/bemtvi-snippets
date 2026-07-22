@@ -90,4 +90,32 @@ nx.test.describe("nxvim-snippets session", function()
     end)
     nx.test.expect(snip.active()).to_be(false)
   end)
+
+  nx.test.it("re-indents a multi-line body's continuation lines to the anchor", function(t)
+    t:cmd("enew")
+    t:feed("i\t") -- the trigger sits after a tab; continuation lines inherit it
+    snip.expand("if $1 then\n\t$0\nend")
+    t:wait_for(function()
+      return snip.active()
+    end)
+    nx.test.expect(t:lines()).to_equal({ "\tif  then", "\t\t", "\tend" })
+  end)
+
+  nx.test.it("a choice tabstop opens a dropdown; picking replaces (mirrors follow)", function(t)
+    t:cmd("enew")
+    t:feed("i")
+    snip.expand("${1|a,b,c|}-${1|a,b,c|}")
+    t:wait_for(function()
+      return snip.active()
+    end)
+    -- The first alternative renders as the value in both occurrences.
+    nx.test.expect(t:line(1)).to_be("a-a")
+    -- The dropdown (a grabbing select list) is open, noselect: <C-n> activates the
+    -- first row, the second <C-n> moves to `b`, <CR> confirms — both mirrors become `b`.
+    t:feed("<C-n><C-n><CR>")
+    t:wait_for(function()
+      return t:line(1) == "b-b"
+    end)
+    nx.test.expect(t:line(1)).to_be("b-b")
+  end)
 end)

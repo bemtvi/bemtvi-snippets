@@ -73,6 +73,40 @@ local function abs_pos(text, off, sr, sc)
   return sr + nl, off - last
 end
 
+-- Re-indent a multi-line expansion so every line after the first is prefixed with
+-- `indent` (the anchor line's leading whitespace), and remap each tabstop occurrence's
+-- byte spans onto the new offsets. A single-line body — or no indent — is returned
+-- untouched. Mirrors the native engine's continuation-line indenting.
+local function reindent(text, stops, indent)
+  if indent == "" or not text:find("\n", 1, true) then
+    return text, stops
+  end
+  -- map[off] = the output byte offset of input byte offset `off` (0-based).
+  local map, out, outlen, prev_nl = {}, {}, 0, false
+  for i = 1, #text do
+    if prev_nl then
+      out[#out + 1] = indent
+      outlen = outlen + #indent
+    end
+    map[i - 1] = outlen
+    out[#out + 1] = text:sub(i, i)
+    outlen = outlen + 1
+    prev_nl = text:byte(i) == 10
+  end
+  map[#text] = outlen
+  local newstops = {}
+  for idx, occs in pairs(stops) do
+    local no = { choices = occs.choices }
+    for _, occ in ipairs(occs) do
+      local n = { map[occ[1]], map[occ[2]] }
+      n.transform = occ.transform
+      no[#no + 1] = n
+    end
+    newstops[idx] = no
+  end
+  return table.concat(out), newstops
+end
+
 -- The current (row, col, end_row, end_col) of extmark `id`, or nil if it's gone.
 local function mark_range(buf, id)
   local ms = nx.buf.extmarks(buf, NS, 0, -1, { details = true })
@@ -171,6 +205,39 @@ end
 -- and stays editing); an empty tabstop (`$1` / `$0`) has a zero-width range, which
 -- `select_range` degrades to caret + Insert — so one call covers both. Ends the session
 -- when `pos` runs past the last stop.
+-- Land on a CHOICE stop (`${N|a,b,c|}`): open a dropdown of the alternatives instead
+-- of selecting the default. Picking one replaces the value (mirrors then follow via the
+-- normal `on_bytes` sync); cancelling keeps the current value. Either way the caret ends
+-- just past the value in Insert, ready to keep typing or `<Tab>` on. The dropdown is a
+-- grabbing `nx.ui.select`, so it reads as an obvious "choose one of these".
+local function open_choice(stop)
+  local buf, pm = S.buf, primary_mark(stop)
+  nx.ui.select(stop.choices, { prompt = "Choice" }):next(function(choice)
+    if not S then
+      return
+    end
+    -- Re-read the mark range: the menu ran on later ticks, so positions may have moved.
+    local r, c, er, ec = mark_range(buf, pm.id)
+    if not r then
+      return
+    end
+    local cur = table.concat(nx.buf.text(buf, r, c, er, ec), "\n")
+    if choice ~= nil and choice ~= cur then
+      nx.buf.set_text(buf, r, c, er, ec, { choice })
+    end
+    -- Park the caret past the (possibly new) value once the edit has settled.
+    nx.on_next_tick(function()
+      if not S then
+        return
+      end
+      local _, _, er2, ec2 = mark_range(buf, pm.id)
+      if er2 then
+        nx.win.set_cursor(0, er2 + 1, ec2)
+      end
+    end)
+  end)
+end
+
 local function goto_pos(pos)
   if pos > #S.order then
     M.finish()
@@ -179,7 +246,13 @@ local function goto_pos(pos)
   S.pos = pos
   local stop = S.stops[S.order[pos]]
   local r, c, er, ec = mark_range(S.buf, primary_mark(stop).id)
-  if r then
+  if not r then
+    return
+  end
+  if stop.choices and #stop.choices > 0 then
+    -- A choice stop offers a dropdown; the default value is already in the buffer.
+    open_choice(stop)
+  else
     -- 0-based rows/cols (select_range's convention); an empty span → caret + Insert.
     nx.win.select_range(0, r, c, er, ec, { on_escape = "insert" })
   end
@@ -207,6 +280,13 @@ function M.expand(buf, sr, sc, er, ec, body, ctx)
   local text, spans = parser.layout(ast, function(name)
     return variables.resolve(name, ctx)
   end)
+
+  -- Re-indent continuation lines to the anchor line's leading whitespace, so a
+  -- multi-line body expanded inside an indented block keeps its shape (the trigger's
+  -- own indent is the text before it on the line).
+  local before = table.concat(nx.buf.text(buf, sr, 0, sr, sc), "")
+  local indent = before:match("^[ \t]*") or ""
+  text, spans = reindent(text, spans, indent)
 
   -- Splice the expansion over the trigger range (P1).
   nx.buf.set_text(buf, sr, sc, er, ec, split_lines(text))
@@ -248,7 +328,7 @@ function M.expand(buf, sr, sc, er, ec, body, ctx)
         })
         marks[#marks + 1] = { id = id, transform = span.transform }
       end
-      stops[idx] = { marks = marks }
+      stops[idx] = { marks = marks, choices = occs.choices }
     end
     S = { buf = buf, stops = stops, order = order, pos = 0, detach = nil }
     S.detach = nx.buf.attach(buf, {

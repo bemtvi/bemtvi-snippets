@@ -62,7 +62,7 @@ The LSP / VSCode syntax:
 | --- | --- |
 | `$1` `${1}` | a tabstop (`$0` is the final one) |
 | `${1:default}` | a placeholder (may nest) |
-| `${1\|a,b,c\|}` | a choice (first alternative is the default text) |
+| `${1\|a,b,c\|}` | a choice — landing on it opens a dropdown of the alternatives to pick from |
 | a repeated `$1` | a mirror — every occurrence renders index 1's text |
 | `$TM_FILENAME` `${CURRENT_YEAR}` | a variable (resolved at expand) |
 | `${VAR:fallback}` | a variable with a default |

@@ -35,6 +35,9 @@ function M.register(get)
       for _, snip in ipairs(get(buf_ft(ctx.buf))) do
         ctx.push({
           text = snip.trigger,
+          -- The right-aligned kind column, so a snippet row reads `Snippet` and stands
+          -- apart from a buffer word / LSP item (matching the built-in `snippets` source).
+          kind = "Snippet",
           doc = snip.description,
           on_accept = function(_item, c)
             -- The callback OWNS the edit: expand over the trigger range the engine

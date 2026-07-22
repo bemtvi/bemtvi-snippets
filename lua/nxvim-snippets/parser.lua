@@ -472,6 +472,11 @@ function M.layout(ast, resolve)
           expanding[n.index] = nil
         end
         stops[n.index] = stops[n.index] or {}
+        -- A choice stop (`${N|a,b,c|}`) carries its alternatives so the session can
+        -- offer them as a dropdown instead of a plain type-over default.
+        if n.choices and #n.choices > 0 and not stops[n.index].choices then
+          stops[n.index].choices = n.choices
+        end
         local occ = { s, len }
         occ.transform = n.transform
         stops[n.index][#stops[n.index] + 1] = occ
