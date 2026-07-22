@@ -40,4 +40,28 @@ nx.test.describe("nxvim-snippets completion source", function()
     -- No snippet session ever starts (the python snippet isn't offered here).
     nx.test.expect(snip.active()).to_be(false)
   end)
+
+  nx.test.it("a snippet trigger outranks a fuzzy buffer word", function(t)
+    -- Both `buffer` and the snippet source active; the snippet source's priority (90)
+    -- must rank its rows above plain buffer words (10) so an exact trigger isn't buried.
+    nx.complete.setup({
+      sources = { { "buffer", min_chars = 2 }, { "nxvim-snippets", min_chars = 2 } },
+    })
+    snip.add("lua", { { trigger = "log", body = "LOG($1)$0" } })
+    t:cmd("enew")
+    t:cmd("set filetype=lua")
+    -- `alongside` is a buffer word that fuzzy-matches `lo`; type both on one line so the
+    -- prefix is `lo` with the word already present as a candidate.
+    t:feed("ialongside lo")
+    t:sleep(30)
+    t:feed("<C-n>") -- select the FIRST (highest-priority) row
+    t:feed("<C-y>") -- accept it
+    -- The snippet row ranked first, so accepting it started a session (had the buffer
+    -- word ranked first, `alongside` would have been inserted and no session started).
+    t:wait_for(function()
+      return snip.active()
+    end)
+    nx.test.expect(snip.active()).to_be(true)
+    nx.test.expect(t:line(1)).to_be("alongside LOG()")
+  end)
 end)
