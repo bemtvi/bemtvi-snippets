@@ -26,11 +26,12 @@ function M.register(get)
   nx.complete.source({
     -- NOT "snippets" — that name is a reserved core built-in source.
     name = "nxvim-snippets",
-    -- Rank snippet rows above plain `buffer` words (default priority 10) so an exact
-    -- trigger match isn't buried under a fuzzy buffer subsequence — matching the
-    -- built-in `snippets` source's default. A user can override per entry with
+    -- A small per-source bias added to a row's fuzzy score (the merge is fuzzy-first,
+    -- then this bias breaks near-ties) — matching the built-in `snippets` source, so an
+    -- equally-good snippet trigger edges out a buffer word without burying a clearly
+    -- better buffer match. Override per entry with
     -- `nx.complete.setup{ sources = { { "nxvim-snippets", priority = N } } }`.
-    priority = 90,
+    priority = 5,
     -- Snippets are cheap in-memory data, so there's nothing to debounce — offer them
     -- as soon as the prefix changes (no lag before the row appears).
     debounce = 0,
