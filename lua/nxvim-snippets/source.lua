@@ -19,6 +19,19 @@ local function buf_ft(buf)
   return (ok and ft) or ""
 end
 
+-- The docs-float markdown previewing a snippet completion row: its body fenced as a
+-- code block (tagged with the buffer's filetype so it syntax-highlights), with any
+-- `description` as a lead paragraph. So selecting a snippet row shows what it expands
+-- to — the same "function docs" surface LSP items use — instead of nothing when the
+-- snippet has no description. Mirrors the built-in `snippets` source's preview.
+local function preview_doc(snip, ft)
+  local fenced = "```" .. ft .. "\n" .. snip.body .. "\n```"
+  if snip.description and snip.description ~= "" then
+    return snip.description .. "\n\n" .. fenced
+  end
+  return fenced
+end
+
 -- register(get) — install the source. `get(ft)` returns the snippet list to offer for
 -- filetype `ft` (the caller merges ft-specific + global "all"). Idempotent-ish: calling
 -- again re-registers the same-named source (the engine keeps the latest).
@@ -38,13 +51,16 @@ function M.register(get)
     complete = function(ctx)
       -- Offer every snippet for the filetype; the engine's fuzzy matcher ranks them
       -- against `ctx.prefix` and merges them with the other sources.
-      for _, snip in ipairs(get(buf_ft(ctx.buf))) do
+      local ft = buf_ft(ctx.buf)
+      for _, snip in ipairs(get(ft)) do
         ctx.push({
           text = snip.trigger,
           -- The right-aligned kind column, so a snippet row reads `Snippet` and stands
           -- apart from a buffer word / LSP item (matching the built-in `snippets` source).
           kind = "Snippet",
-          doc = snip.description,
+          -- Preview the expansion (body + optional description) in the docs float when
+          -- this row is selected.
+          doc = preview_doc(snip, ft),
           on_accept = function(_item, c)
             -- The callback OWNS the edit: expand over the trigger range the engine
             -- computed (P4 → P1/P2/P5 inside the session).
