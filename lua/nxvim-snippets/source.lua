@@ -25,7 +25,7 @@ end
 function M.register(get)
   nx.complete.source({
     -- NOT "snippets" — that name is a reserved core built-in source.
-    name = "nxsnippets",
+    name = "nxvim-snippets",
     -- Snippets are cheap in-memory data, so there's nothing to debounce — offer them
     -- as soon as the prefix changes (no lag before the row appears).
     debounce = 0,

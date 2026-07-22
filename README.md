@@ -39,7 +39,7 @@ local snip = require("nxvim-snippets")
 snip.setup({})
 
 -- Route the source into your completion engine (the plugin does NOT hijack it):
-nx.complete.setup({ sources = { { "buffer" }, { "nxsnippets" } } })
+nx.complete.setup({ sources = { { "buffer" }, { "nxvim-snippets" } } })
 
 -- Add snippets inline …
 snip.add("lua", {

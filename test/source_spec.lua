@@ -11,7 +11,7 @@ nx.test.describe("nxvim-snippets completion source", function()
     snip.setup({})
     -- Route the plugin's source into the completion engine (the user does this in
     -- their config; the plugin doesn't hijack nx.complete).
-    nx.complete.setup({ sources = { { "nxsnippets", min_chars = 2 } } })
+    nx.complete.setup({ sources = { { "nxvim-snippets", min_chars = 2 } } })
   end)
 
   nx.test.it("offers a filetype's snippet and expands it on accept", function(t)
