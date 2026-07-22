@@ -60,6 +60,47 @@ nx.test.describe("nxvim-snippets completion source", function()
     nx.test.expect(snip.active()).to_be(false)
   end)
 
+  nx.test.it("lazily loads a runtimepath collection on first completion", function(t)
+    -- The full auto-load path THROUGH the source: point `friendly_snippets` at a temp
+    -- VSCode collection, and prove its snippet is discovered + read on the first
+    -- completion in that filetype and offered in the menu (nothing was preloaded).
+    local dir = nx.test.tempdir()
+    nx.await(nx.fs.write(
+      dir .. "/package.json",
+      nx.json.encode({
+        contributes = { snippets = { { language = "lua", path = "lua.json" } } },
+      })
+    ))
+    nx.await(
+      nx.fs.write(
+        dir .. "/lua.json",
+        nx.json.encode({
+          ["for range"] = { prefix = "forr", body = "for ${1:i} = 1, ${2:n} do$0 end" },
+        })
+      )
+    )
+    snip._byft = {}
+    snip._index = nil
+    snip._lazy = {}
+    snip.setup({ friendly_snippets = { dir } })
+    nx.complete.setup({})
+
+    -- The snippet lives only on disk — nothing is registered until a completion asks.
+    nx.test.expect(#snip.get("lua")).to_be(0)
+
+    t:cmd("enew")
+    t:cmd("set filetype=lua")
+    t:feed("ifo") -- fuzzy-matches the not-yet-loaded trigger "forr"
+    -- The first completion reads lua.json (async) before offering — give it a beat.
+    t:sleep(60)
+    t:feed("<C-n>")
+    t:feed("<C-y>")
+    t:wait_for(function()
+      return snip.active()
+    end)
+    nx.test.expect(t:line(1)).to_be("for i = 1, n do end")
+  end)
+
   nx.test.it("a snippet trigger outranks a fuzzy buffer word", function(t)
     -- Both `buffer` and the auto-joined snippet source are active; the snippet source's
     -- priority (5) must rank its rows above plain buffer words (0) so an exact trigger

@@ -32,14 +32,18 @@ local function preview_doc(snip, ft)
   return fenced
 end
 
--- register(get, min_chars) — install the source. `get(ft)` returns the snippet list to
--- offer for filetype `ft` (the caller merges ft-specific + global "all"). `min_chars` is
--- the source's own prefix gate (how many chars before snippets show, default 2).
+-- register(get, min_chars, ensure) — install the source. `get(ft)` returns the snippet
+-- list to offer for filetype `ft` (the caller merges ft-specific + global "all").
+-- `ensure(ft)` (optional) returns a promise the source awaits before offering rows —
+-- the lazy loader that pulls in a friendly-snippets language the first time it's needed
+-- (a no-op once cached), so those snippets appear without any up-front bulk read.
+-- `min_chars` is the source's own prefix gate (how many chars before snippets show,
+-- default 2).
 -- Registering **activates** the source — it joins the live `nx.complete` engine on its
 -- own, so the user never lists it in `nx.complete.setup{ sources }` (that list is only
 -- for overriding these defaults). Idempotent-ish: calling again re-registers the
 -- same-named source (the engine keeps the latest).
-function M.register(get, min_chars)
+function M.register(get, min_chars, ensure)
   nx.complete.source({
     -- NOT "snippets" — that name is a reserved core built-in source.
     name = "nxvim-snippets",
@@ -59,24 +63,32 @@ function M.register(get, min_chars)
     debounce = 0,
     complete = function(ctx)
       -- Offer every snippet for the filetype; the engine's fuzzy matcher ranks them
-      -- against `ctx.prefix` and merges them with the other sources.
+      -- against `ctx.prefix` and merges them with the other sources. Returning a promise
+      -- (from `nx.async`) tells the engine to wait for it before settling this gen, so
+      -- the first completion in a filetype can lazily read that language's collection
+      -- files before offering — every later keystroke resolves it instantly (cached).
       local ft = buf_ft(ctx.buf)
-      for _, snip in ipairs(get(ft)) do
-        ctx.push({
-          text = snip.trigger,
-          -- The right-aligned kind column, so a snippet row reads `Snippet` and stands
-          -- apart from a buffer word / LSP item (matching the built-in `snippets` source).
-          kind = "Snippet",
-          -- Preview the expansion (body + optional description) in the docs float when
-          -- this row is selected.
-          doc = preview_doc(snip, ft),
-          on_accept = function(_item, c)
-            -- The callback OWNS the edit: expand over the trigger range the engine
-            -- computed (P4 → P1/P2/P5 inside the session).
-            session.expand(c.buf, c.start_row, c.start_col, c.end_row, c.end_col, snip.body)
-          end,
-        })
-      end
+      return nx.async(function()
+        if ensure then
+          nx.await(ensure(ft))
+        end
+        for _, snip in ipairs(get(ft)) do
+          ctx.push({
+            text = snip.trigger,
+            -- The right-aligned kind column, so a snippet row reads `Snippet` and stands
+            -- apart from a buffer word / LSP item (matching the built-in `snippets` source).
+            kind = "Snippet",
+            -- Preview the expansion (body + optional description) in the docs float when
+            -- this row is selected.
+            doc = preview_doc(snip, ft),
+            on_accept = function(_item, c)
+              -- The callback OWNS the edit: expand over the trigger range the engine
+              -- computed (P4 → P1/P2/P5 inside the session).
+              session.expand(c.buf, c.start_row, c.start_col, c.end_row, c.end_col, snip.body)
+            end,
+          })
+        end
+      end)()
     end,
   })
 end

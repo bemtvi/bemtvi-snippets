@@ -47,9 +47,36 @@ snip.add("lua", {
   { trigger = "lf", body = "local function ${1:name}(${2:args})\n\t$0\nend" },
 })
 
--- … or load a whole VSCode collection (async — returns a promise):
+-- … or load a whole VSCode collection eagerly (async — returns a promise):
 nx.await(snip.load_vscode("/path/to/friendly-snippets"))
 ```
+
+### friendly-snippets (automatic, lazy)
+
+The easiest way to get a big snippet library: add [friendly-snippets] to your
+**runtimepath** — as a plugin dependency in your plugin manager — and do nothing
+else. `snip.setup{}` discovers any VSCode collection on the runtimepath and offers
+its snippets in completion with **no `load_vscode` call**.
+
+```lua
+-- e.g. with nx.plugins, list friendly-snippets as a dependency of this plugin — that
+-- alone puts it on the runtimepath, no separate top-level spec needed:
+nx.plugins.add({
+  { "nxvim/nxvim-snippets", deps = { "rafamadriz/friendly-snippets" },
+    config = function() require("nxvim-snippets").setup({}) end },
+})
+```
+
+Loading is **lazy and cached**, so a 9,000-snippet collection costs almost nothing
+up front: `setup{}` reads only each collection's small `package.json` manifest to
+learn which files feed which filetype. A language's actual snippet files are read
+the **first time a completion needs that filetype**, then cached — every later
+keystroke is served from memory with no disk I/O, and languages you never edit are
+never read.
+
+Set `setup{ friendly_snippets = false }` to turn the auto-scan off, or pass a list
+of collection-root dirs (`friendly_snippets = { "/path/to/collection" }`) to load
+exactly those instead of sweeping the runtimepath.
 
 > The snippet source auto-joins your `nx.complete` engine as soon as it's registered
 > (even if you `nx.complete.setup{}` *before* loading this plugin). List
@@ -93,7 +120,9 @@ variable falls back to its `${VAR:default}` (or empty), matching VSCode.
 - `snip.setup(opts)` — register the source (it auto-joins `nx.complete`) + jump
   keymaps. `opts.jump_next` / `opts.jump_prev` set the jump keys (or `false` to skip
   and map the functions yourself). `opts.min_chars` (default 2) sets the source's own
-  prefix gate — how many typed chars before snippets show.
+  prefix gate — how many typed chars before snippets show. `opts.friendly_snippets`
+  (default `true`) auto-discovers VSCode collections on the runtimepath and lazy-loads
+  them per filetype; `false` disables it, or pass a list of collection-root dirs.
 - `snip.add(ft, list)` — register `{ trigger, body, description? }` entries for a
   filetype. The `"all"` filetype is offered for every buffer (VSCode's global scope).
 - `snip.load_vscode(dir)` — load a VSCode-format collection; returns a promise.

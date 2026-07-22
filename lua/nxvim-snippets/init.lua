@@ -46,7 +46,61 @@ M.config = {
   -- Kept low (2) so short triggers like `lf` open the menu. The source auto-joins the
   -- `nx.complete` engine with this gate — no need to list it in `nx.complete.setup`.
   min_chars = 2,
+  -- Auto-load VSCode snippet collections (e.g. friendly-snippets) found on the
+  -- runtimepath. Put friendly-snippets on the runtimepath — as a plugin dependency in
+  -- your plugin manager — and its snippets appear in completion with no `load_vscode`
+  -- call. Nothing is read up front: only each collection's small `package.json` manifest
+  -- is scanned to learn which files feed which filetype; a language's actual snippet
+  -- files are read the first time a completion needs them, then cached (see
+  -- `M._ensure_lazy`). Set `false` to disable, or a list of collection-root dirs to load
+  -- exactly those instead of sweeping the runtimepath.
+  friendly_snippets = true,
 }
+
+-- The one-time runtimepath manifest scan (`vscode.discover`), memoized as a promise so
+-- every completion shares the single sweep. Resolves to `{ [ft] = { file-path, ... } }`.
+M._index = nil
+-- Per-filetype lazy-load promises: `_lazy[ft]` is the (in-flight or settled) promise
+-- that reads + registers `ft`'s snippet files. Memoizing it is the cache — a completion
+-- keystroke after the first for a filetype awaits an already-resolved promise and does
+-- no disk I/O. Reset by `setup` so a reconfigure re-discovers.
+M._lazy = {}
+
+-- Ensure the manifest index is built (once). `friendly_snippets` may be a list of
+-- explicit collection dirs; anything else truthy means "sweep the runtimepath".
+function M._ensure_index()
+  if not M._index then
+    local dirs = type(M.config.friendly_snippets) == "table" and M.config.friendly_snippets or nil
+    M._index = vscode.discover(dirs)
+  end
+  return M._index
+end
+
+-- Lazily load the discovered VSCode snippets for filetype `ft` into `_byft`, reading
+-- only that filetype's files (plus the global `"all"` bucket `M.get` merges into every
+-- filetype) and only the first time — the memoized per-key promise is the cache.
+-- Returns a promise the completion source awaits before offering rows; a no-op promise
+-- when auto-loading is disabled.
+function M._ensure_lazy(ft)
+  return nx.async(function()
+    if not M.config.friendly_snippets then
+      return
+    end
+    local index = nx.await(M._ensure_index())
+    -- Load the buffer's own filetype and the always-merged `"all"` scope. Each key's
+    -- read happens at most once thanks to the `_lazy[key]` promise memo.
+    for _, key in ipairs({ ft, "all" }) do
+      if key and key ~= "" and not M._lazy[key] then
+        M._lazy[key] = vscode.load_paths(index[key] or {}):next(function(list)
+          M.add(key, list)
+        end)
+      end
+      if M._lazy[key] then
+        nx.await(M._lazy[key])
+      end
+    end
+  end)()
+end
 
 -- Validate + store a snippet list for `ft`. Each entry needs a string `trigger` and a
 -- string `body`; `description` is optional. Fails loud on a bad shape (no silent skip).
@@ -134,9 +188,21 @@ function M.setup(opts)
     M.config[k] = v
   end
 
-  source.register(function(ft)
-    return M.get(ft)
-  end, M.config.min_chars)
+  -- A reconfigure re-discovers: drop the memoized manifest scan and per-filetype load
+  -- caches so a changed `friendly_snippets` (toggled off, or pointed at new dirs) takes
+  -- effect. Already-registered snippets in `_byft` are left in place.
+  M._index = nil
+  M._lazy = {}
+
+  source.register(
+    function(ft)
+      return M.get(ft)
+    end,
+    M.config.min_chars,
+    function(ft)
+      return M._ensure_lazy(ft)
+    end
+  )
 
   -- Map the jump keys in BOTH Insert and Select mode: a placeholder with a default is
   -- landed on in Select mode (so typing replaces it), and the jump keys must work there
