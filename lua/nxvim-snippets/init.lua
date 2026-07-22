@@ -133,13 +133,16 @@ function M.setup(opts)
     return M.get(ft)
   end)
 
+  -- Map the jump keys in BOTH Insert and Select mode: a placeholder with a default is
+  -- landed on in Select mode (so typing replaces it), and the jump keys must work there
+  -- too — otherwise <C-j> on a selected placeholder would fall through to Normal.
   if M.config.jump_next then
-    nx.keymap.set("i", M.config.jump_next, function()
+    nx.keymap.set({ "i", "s" }, M.config.jump_next, function()
       M.jump_next()
     end, { desc = "nxvim-snippets: jump to next tabstop" })
   end
   if M.config.jump_prev then
-    nx.keymap.set("i", M.config.jump_prev, function()
+    nx.keymap.set({ "i", "s" }, M.config.jump_prev, function()
       M.jump_prev()
     end, { desc = "nxvim-snippets: jump to previous tabstop" })
   end

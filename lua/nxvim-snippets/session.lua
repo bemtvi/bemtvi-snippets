@@ -8,7 +8,9 @@
 --                             typed into it is swallowed rather than landing outside
 --   nx.buf.attach        (P3) react to each edit to re-sync mirrors; tear down on a
 --                             wholesale reload (undo/redo/:e), where anchors are moot
---   nx.win.set_cursor    (P5) jump the caret between tabstops
+--   nx.win.select_range  (P6) land on each tabstop: a placeholder with a default is
+--                             SELECTED so the first keystroke replaces it, an empty
+--                             tabstop degrades to a caret in Insert (P5's set_cursor)
 --
 -- One session at a time (like the native engine). No snippet syntax lives in the core:
 -- the parser + this session are entirely plugin Lua over the generic seams.
@@ -163,8 +165,12 @@ function M.finish()
   S = nil
 end
 
--- Move the caret to the START of tab-order position `pos`'s primary occurrence. Ends
--- the session when `pos` runs past the last stop.
+-- Land on tab-order position `pos`'s primary occurrence. A placeholder with a default
+-- (`${1:name}`) is SELECTED so the first keystroke replaces it (P6 Select mode, via
+-- `nx.win.select_range` with `on_escape = "insert"` so a bare <Esc> keeps the default
+-- and stays editing); an empty tabstop (`$1` / `$0`) has a zero-width range, which
+-- `select_range` degrades to caret + Insert — so one call covers both. Ends the session
+-- when `pos` runs past the last stop.
 local function goto_pos(pos)
   if pos > #S.order then
     M.finish()
@@ -172,9 +178,10 @@ local function goto_pos(pos)
   end
   S.pos = pos
   local stop = S.stops[S.order[pos]]
-  local r, c = mark_range(S.buf, primary_mark(stop).id)
+  local r, c, er, ec = mark_range(S.buf, primary_mark(stop).id)
   if r then
-    nx.win.set_cursor(0, r + 1, c) -- set_cursor is 1-based row
+    -- 0-based rows/cols (select_range's convention); an empty span → caret + Insert.
+    nx.win.select_range(0, r, c, er, ec, { on_escape = "insert" })
   end
   -- $0 (the final stop) is terminal: landing on it and jumping again ends the session.
 end
