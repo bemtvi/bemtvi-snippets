@@ -118,4 +118,23 @@ nx.test.describe("nxvim-snippets session", function()
     end)
     nx.test.expect(t:line(1)).to_be("b-b")
   end)
+
+  nx.test.it("jump_prev at the first tabstop stays put without erroring", function(t)
+    t:cmd("enew")
+    t:feed("i")
+    snip.expand("wrap($1, $2)$0")
+    t:wait_for(function()
+      return snip.active()
+    end)
+    -- <C-k>/jump_prev while already on the first tabstop must not crash (an earlier bug
+    -- indexed `S.order[0]` → nil); the session stays live on $1.
+    snip.jump_prev()
+    t:wait_for(function()
+      return snip.active()
+    end)
+    nx.test.expect(snip.active()).to_be(true)
+    -- $1 is still the active stop: typing fills it.
+    t:feed("x")
+    nx.test.expect(t:line(1)).to_be("wrap(x, )")
+  end)
 end)

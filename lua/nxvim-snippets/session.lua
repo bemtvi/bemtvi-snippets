@@ -223,6 +223,12 @@ local function goto_pos(pos)
     M.finish()
     return
   end
+  -- Jumping to the previous stop while already on the first one stays put — clamp
+  -- rather than indexing `S.order[0]` (nil, since Lua lists are 1-based), which would
+  -- crash `primary_mark(nil)`. Matches vim's snippet jump (prev at $1 is a no-op).
+  if pos < 1 then
+    pos = 1
+  end
   S.pos = pos
   local stop = S.stops[S.order[pos]]
   local r, c, er, ec = mark_range(S.buf, primary_mark(stop).id)
