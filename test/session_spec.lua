@@ -110,9 +110,9 @@ nx.test.describe("nxvim-snippets session", function()
     end)
     -- The first alternative renders as the value in both occurrences.
     nx.test.expect(t:line(1)).to_be("a-a")
-    -- The dropdown (a grabbing select list) is open, noselect: <C-n> activates the
-    -- first row, the second <C-n> moves to `b`, <CR> confirms — both mirrors become `b`.
-    t:feed("<C-n><C-n><CR>")
+    -- The dropdown (a NON-GRABBING completion popup) is open, preselected on the current
+    -- value `a`: <C-n> moves to `b`, <C-y> accepts — the pick replaces both mirrors.
+    t:feed("<C-n><C-y>")
     t:wait_for(function()
       return t:line(1) == "b-b"
     end)

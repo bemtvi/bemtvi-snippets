@@ -205,37 +205,17 @@ end
 -- and stays editing); an empty tabstop (`$1` / `$0`) has a zero-width range, which
 -- `select_range` degrades to caret + Insert — so one call covers both. Ends the session
 -- when `pos` runs past the last stop.
--- Land on a CHOICE stop (`${N|a,b,c|}`): open a dropdown of the alternatives instead
--- of selecting the default. Picking one replaces the value (mirrors then follow via the
--- normal `on_bytes` sync); cancelling keeps the current value. Either way the caret ends
--- just past the value in Insert, ready to keep typing or `<Tab>` on. The dropdown is a
--- grabbing `nx.ui.select`, so it reads as an obvious "choose one of these".
+-- Land on a CHOICE stop (`${N|a,b,c|}`): open a NON-GRABBING dropdown of the
+-- alternatives at the cursor (`nx.complete.choice`, the completion-popup widget — not
+-- the modal `nx.ui.select`) so it reads as "pick one" while input keeps flowing. The
+-- popup owns the pick: accepting a row splices it over the tabstop range natively, which
+-- fires our `on_bytes` → the mirror sync. Nothing to do on this side but open it over
+-- the primary occurrence's current range. Cancelling / typing keeps the current value.
 local function open_choice(stop)
-  local buf, pm = S.buf, primary_mark(stop)
-  nx.ui.select(stop.choices, { prompt = "Choice" }):next(function(choice)
-    if not S then
-      return
-    end
-    -- Re-read the mark range: the menu ran on later ticks, so positions may have moved.
-    local r, c, er, ec = mark_range(buf, pm.id)
-    if not r then
-      return
-    end
-    local cur = table.concat(nx.buf.text(buf, r, c, er, ec), "\n")
-    if choice ~= nil and choice ~= cur then
-      nx.buf.set_text(buf, r, c, er, ec, { choice })
-    end
-    -- Park the caret past the (possibly new) value once the edit has settled.
-    nx.on_next_tick(function()
-      if not S then
-        return
-      end
-      local _, _, er2, ec2 = mark_range(buf, pm.id)
-      if er2 then
-        nx.win.set_cursor(0, er2 + 1, ec2)
-      end
-    end)
-  end)
+  local r, c, er, ec = mark_range(S.buf, primary_mark(stop).id)
+  if r then
+    nx.complete.choice(stop.choices, { range = { r, c, er, ec } })
+  end
 end
 
 local function goto_pos(pos)
