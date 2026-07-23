@@ -2,7 +2,7 @@
 
 A snippet engine for [nxvim](../../nxvim), built **entirely on the native `nx.*`
 plugin API** — no snippet syntax lives in the editor core. It loads
-VSCode-format snippet collections (e.g. [friendly-snippets]), offers them in the
+VSCode-format snippet collections (e.g. [friendly-snippets](https://github.com/rafamadriz/friendly-snippets)), offers them in the
 completion menu, and expands the chosen one into a live tabstop session with
 mirrors.
 
@@ -48,12 +48,12 @@ snip.add("lua", {
 })
 
 -- … or point discovery at a VSCode collection that isn't on the runtimepath:
-snip.add_collection("/path/to/friendly-snippets")
+snip.add_collection("/path/to/snippets-collection")
 ```
 
 ### friendly-snippets (automatic, lazy)
 
-The easiest way to get a big snippet library: add [friendly-snippets] to your
+The easiest way to get a big snippet library: add [friendly-snippets](https://github.com/rafamadriz/friendly-snippets) to your
 **runtimepath** — as a plugin dependency in your plugin manager — and do nothing
 else. `snip.setup{}` discovers any VSCode collection on the runtimepath and offers
 its snippets in completion automatically.
