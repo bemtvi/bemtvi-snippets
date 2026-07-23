@@ -63,8 +63,8 @@ end
 -- `{ ft = <nxvim filetype>, path = <absolute snippet-file path> }`. A `contributes`
 -- entry that names several languages fans out into one record per filetype. `dir` is
 -- the collection root; the returned paths are `dir`-relative resolved to absolute.
--- Returns the list; the caller decides whether an absent `contributes.snippets` is an
--- error (an explicit `load`) or a skip (a runtimepath sweep in `discover`).
+-- Returns nil for a package.json that is not a snippet collection (no
+-- `contributes.snippets`) — `discover` treats that as a skip.
 local function manifest_records(dir, pkg)
   local contributes = ((pkg or {}).contributes or {}).snippets
   if type(contributes) ~= "table" then
@@ -85,65 +85,28 @@ local function manifest_records(dir, pkg)
   return records
 end
 
--- load(dir, add) -> promise. Read `dir/package.json`, then each contributed snippet
--- file, and call `add(filetype, list)` per language. Rejects (fail loud) if
--- package.json is missing / malformed; a single unreadable snippet file is reported via
--- `nx.notify` and skipped so one bad file doesn't sink the whole collection. This is the
--- EAGER path (`snip.load_vscode`); prefer `discover` + `load_paths` for lazy per-language
--- loading of a large collection like friendly-snippets.
-function M.load(dir, add)
-  return nx.async(function()
-    local pkg = nx.json.decode(nx.await(nx.fs.read_text(dir .. "/package.json")))
-    local records = manifest_records(dir, pkg)
-    if not records then
-      error("nxvim-snippets: " .. dir .. "/package.json has no contributes.snippets")
-    end
-    -- Group the per-language records back by file so each file is read exactly once,
-    -- then hand its parsed list to `add` for every filetype that file feeds.
-    local fts_by_path, order = {}, {}
-    for _, rec in ipairs(records) do
-      if not fts_by_path[rec.path] then
-        fts_by_path[rec.path] = {}
-        order[#order + 1] = rec.path
-      end
-      table.insert(fts_by_path[rec.path], rec.ft)
-    end
-    for _, path in ipairs(order) do
-      local ok, raw = pcall(function()
-        return nx.await(nx.fs.read_text(path))
-      end)
-      if not ok then
-        nx.notify("nxvim-snippets: could not read " .. path .. ": " .. tostring(raw), "warn")
-      else
-        local list = parse_file(raw)
-        for _, ft in ipairs(fts_by_path[path]) do
-          add(ft, list)
-        end
-      end
-    end
-  end)()
-end
-
--- discover(dirs) -> promise of an index `{ [ft] = { path, ... }, ... }`: the snippet
--- FILES each filetype is fed by, WITHOUT reading any of them. Only the small
+-- discover(dirs, include_rtp) -> promise of an index `{ [ft] = { path, ... }, ... }`:
+-- the snippet FILES each filetype is fed by, WITHOUT reading any of them. Only the small
 -- `package.json` manifest of each collection is read, so this stays cheap even for a
 -- 140-file collection like friendly-snippets — the per-language file reads are deferred
 -- to `load_paths` (called on demand when a completion first needs that filetype).
 --
--- `dirs` is an explicit list of collection roots; omit it to sweep the LIVE runtimepath
--- (`nx.runtime_file`), which is how a friendly-snippets checkout added as a plugin
--- dependency is found automatically. A runtimepath package.json that is not a snippet
--- collection (no `contributes.snippets`) or is unreadable is silently skipped — only an
--- explicit `load(dir)` treats that as an error.
-function M.discover(dirs)
+-- Sources of collection roots (unioned): the LIVE runtimepath when `include_rtp` is
+-- truthy (`nx.runtime_file`, how a friendly-snippets checkout added as a plugin
+-- dependency is found automatically), plus every root in the explicit `dirs` list. A
+-- package.json that is not a snippet collection (no `contributes.snippets`) or is
+-- unreadable is silently skipped — discovery never fails loud on one bad entry.
+function M.discover(dirs, include_rtp)
   return nx.async(function()
-    local roots = dirs
-    if not roots then
+    local roots = {}
+    if include_rtp then
       -- Each match is a `<rtp-entry>/package.json`; strip the filename to the root.
-      roots = {}
       for _, pkgpath in ipairs(nx.runtime_file("package.json", true) or {}) do
         roots[#roots + 1] = (pkgpath:gsub("[/\\]package%.json$", ""))
       end
+    end
+    for _, dir in ipairs(dirs or {}) do
+      roots[#roots + 1] = dir
     end
     local index = {}
     for _, dir in ipairs(roots) do

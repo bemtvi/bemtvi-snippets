@@ -15,7 +15,7 @@
 --   variables.lua  VSCode variable resolution ($TM_FILENAME, $CURRENT_YEAR, …)
 --   session.lua    the tabstop session (expand / jump / mirror sync) on the primitives
 --   source.lua     the nx.complete.source integration (offer + on_accept expand)
---   vscode.lua     load a VSCode-format collection over async nx.fs
+--   vscode.lua     discover VSCode collections + lazily load them per filetype
 --
 -- Quick start (init.lua):
 --   local snip = require("nxvim-snippets")
@@ -23,7 +23,7 @@
 --   nx.complete.setup({})           -- enable completion however you like; snippets join
 --   snip.add("lua", { { trigger = "fn",
 --     body = "local function ${1:name}(${2:args})\n\t$0\nend" } })
---   snip.load_vscode("/path/to/friendly-snippets")  -- optional: a whole collection
+--   snip.add_collection("/path/to/collection")  -- optional: an off-runtimepath one
 
 local session = require("nxvim-snippets.session")
 local source = require("nxvim-snippets.source")
@@ -46,19 +46,24 @@ M.config = {
   -- Kept low (2) so short triggers like `lf` open the menu. The source auto-joins the
   -- `nx.complete` engine with this gate — no need to list it in `nx.complete.setup`.
   min_chars = 2,
-  -- Auto-load VSCode snippet collections (e.g. friendly-snippets) found on the
+  -- Auto-discover VSCode snippet collections (e.g. friendly-snippets) on the
   -- runtimepath. Put friendly-snippets on the runtimepath — as a plugin dependency in
-  -- your plugin manager — and its snippets appear in completion with no `load_vscode`
-  -- call. Nothing is read up front: only each collection's small `package.json` manifest
-  -- is scanned to learn which files feed which filetype; a language's actual snippet
-  -- files are read the first time a completion needs them, then cached (see
-  -- `M._ensure_lazy`). Set `false` to disable, or a list of collection-root dirs to load
-  -- exactly those instead of sweeping the runtimepath.
+  -- your plugin manager — and its snippets appear in completion automatically. Nothing is
+  -- read up front: only each collection's small `package.json` manifest is scanned to
+  -- learn which files feed which filetype; a language's actual snippet files are read the
+  -- first time a completion needs them, then cached (see `M._ensure_lazy`). Set `false`
+  -- to skip the runtimepath sweep — off-runtimepath collections added with
+  -- `M.add_collection` are still discovered either way.
   friendly_snippets = true,
 }
 
--- The one-time runtimepath manifest scan (`vscode.discover`), memoized as a promise so
--- every completion shares the single sweep. Resolves to `{ [ft] = { file-path, ... } }`.
+-- Extra VSCode collection roots to auto-discover, on top of the runtimepath sweep —
+-- populated by `M.add_collection`. Same lazy manifest-then-per-filetype path as the
+-- runtimepath ones; this is just how you point at a collection that isn't on the rtp.
+M._collections = {}
+
+-- The one-time manifest scan (`vscode.discover`), memoized as a promise so every
+-- completion shares the single sweep. Resolves to `{ [ft] = { file-path, ... } }`.
 M._index = nil
 -- Per-filetype lazy-load promises: `_lazy[ft]` is the (in-flight or settled) promise
 -- that reads + registers `ft`'s snippet files. Memoizing it is the cache — a completion
@@ -66,12 +71,35 @@ M._index = nil
 -- no disk I/O. Reset by `setup` so a reconfigure re-discovers.
 M._lazy = {}
 
--- Ensure the manifest index is built (once). `friendly_snippets` may be a list of
--- explicit collection dirs; anything else truthy means "sweep the runtimepath".
+-- Whether there is anything to auto-discover at all: the runtimepath sweep, or at least
+-- one explicitly-added collection.
+function M._discovery_on()
+  return M.config.friendly_snippets ~= false or #M._collections > 0
+end
+
+-- Add one or more VSCode collection roots (a dir string, or a list of them) to the
+-- auto-discovery — for a collection that isn't on the runtimepath. Lazily loaded per
+-- filetype exactly like a runtimepath collection; no bodies are read until a completion
+-- needs them. Drops the memoized index so the new root is picked up on the next
+-- completion (call it at config time, before completions start, so already-loaded
+-- filetypes see it too).
+function M.add_collection(dirs)
+  if type(dirs) == "string" then
+    dirs = { dirs }
+  elseif type(dirs) ~= "table" then
+    error("nxvim-snippets.add_collection: expected a dir string or list, got " .. type(dirs))
+  end
+  for _, dir in ipairs(dirs) do
+    M._collections[#M._collections + 1] = dir
+  end
+  M._index = nil
+end
+
+-- Ensure the manifest index is built (once). Unions the runtimepath sweep (unless
+-- `friendly_snippets` is `false`) with the explicitly-added `_collections`.
 function M._ensure_index()
   if not M._index then
-    local dirs = type(M.config.friendly_snippets) == "table" and M.config.friendly_snippets or nil
-    M._index = vscode.discover(dirs)
+    M._index = vscode.discover(M._collections, M.config.friendly_snippets ~= false)
   end
   return M._index
 end
@@ -80,10 +108,10 @@ end
 -- only that filetype's files (plus the global `"all"` bucket `M.get` merges into every
 -- filetype) and only the first time — the memoized per-key promise is the cache.
 -- Returns a promise the completion source awaits before offering rows; a no-op promise
--- when auto-loading is disabled.
+-- when there is nothing to discover.
 function M._ensure_lazy(ft)
   return nx.async(function()
-    if not M.config.friendly_snippets then
+    if not M._discovery_on() then
       return
     end
     local index = nx.await(M._ensure_index())
@@ -172,14 +200,6 @@ function M.abort()
   session.finish()
 end
 
--- Load a VSCode-format snippet collection from `dir` (a friendly-snippets checkout).
--- Async: returns a promise that resolves once every contributed file is registered.
-function M.load_vscode(dir)
-  return vscode.load(dir, function(ft, list)
-    M.add(ft, list)
-  end)
-end
-
 -- setup(opts) — (re)configure and register the completion source + jump keymaps.
 -- `opts.jump_next` / `opts.jump_prev` override the jump keys (or `false` to skip).
 function M.setup(opts)
@@ -189,8 +209,8 @@ function M.setup(opts)
   end
 
   -- A reconfigure re-discovers: drop the memoized manifest scan and per-filetype load
-  -- caches so a changed `friendly_snippets` (toggled off, or pointed at new dirs) takes
-  -- effect. Already-registered snippets in `_byft` are left in place.
+  -- caches so a changed `friendly_snippets` (e.g. toggled off) takes effect.
+  -- Already-registered snippets in `_byft` and added `_collections` are left in place.
   M._index = nil
   M._lazy = {}
 

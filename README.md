@@ -47,8 +47,8 @@ snip.add("lua", {
   { trigger = "lf", body = "local function ${1:name}(${2:args})\n\t$0\nend" },
 })
 
--- … or load a whole VSCode collection eagerly (async — returns a promise):
-nx.await(snip.load_vscode("/path/to/friendly-snippets"))
+-- … or point discovery at a VSCode collection that isn't on the runtimepath:
+snip.add_collection("/path/to/friendly-snippets")
 ```
 
 ### friendly-snippets (automatic, lazy)
@@ -56,7 +56,7 @@ nx.await(snip.load_vscode("/path/to/friendly-snippets"))
 The easiest way to get a big snippet library: add [friendly-snippets] to your
 **runtimepath** — as a plugin dependency in your plugin manager — and do nothing
 else. `snip.setup{}` discovers any VSCode collection on the runtimepath and offers
-its snippets in completion with **no `load_vscode` call**.
+its snippets in completion automatically.
 
 ```lua
 -- e.g. with nx.plugins, list friendly-snippets as a dependency of this plugin — that
@@ -74,9 +74,10 @@ the **first time a completion needs that filetype**, then cached — every later
 keystroke is served from memory with no disk I/O, and languages you never edit are
 never read.
 
-Set `setup{ friendly_snippets = false }` to turn the auto-scan off, or pass a list
-of collection-root dirs (`friendly_snippets = { "/path/to/collection" }`) to load
-exactly those instead of sweeping the runtimepath.
+For a collection that **isn't** on the runtimepath, register it explicitly with
+`snip.add_collection("/path/to/collection")` (a dir, or a list of dirs) — it joins
+the same lazy discovery. Set `setup{ friendly_snippets = false }` to turn the
+runtimepath sweep off; explicitly-added collections are still discovered either way.
 
 > The snippet source auto-joins your `nx.complete` engine as soon as it's registered
 > (even if you `nx.complete.setup{}` *before* loading this plugin). List
@@ -122,10 +123,11 @@ variable falls back to its `${VAR:default}` (or empty), matching VSCode.
   and map the functions yourself). `opts.min_chars` (default 2) sets the source's own
   prefix gate — how many typed chars before snippets show. `opts.friendly_snippets`
   (default `true`) auto-discovers VSCode collections on the runtimepath and lazy-loads
-  them per filetype; `false` disables it, or pass a list of collection-root dirs.
+  them per filetype; `false` turns the runtimepath sweep off.
 - `snip.add(ft, list)` — register `{ trigger, body, description? }` entries for a
   filetype. The `"all"` filetype is offered for every buffer (VSCode's global scope).
-- `snip.load_vscode(dir)` — load a VSCode-format collection; returns a promise.
+- `snip.add_collection(dirs)` — add a VSCode collection root (a dir, or a list) to the
+  lazy auto-discovery, for a collection that isn't on the runtimepath.
 - `snip.expand(body)` — expand a body at the cursor right now.
 - `snip.jump_next()` / `snip.jump_prev()` — jump tabstops (return whether a session
   was live, so a custom keymap can fall through).

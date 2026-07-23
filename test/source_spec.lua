@@ -60,10 +60,10 @@ nx.test.describe("nxvim-snippets completion source", function()
     nx.test.expect(snip.active()).to_be(false)
   end)
 
-  nx.test.it("lazily loads a runtimepath collection on first completion", function(t)
-    -- The full auto-load path THROUGH the source: point `friendly_snippets` at a temp
-    -- VSCode collection, and prove its snippet is discovered + read on the first
-    -- completion in that filetype and offered in the menu (nothing was preloaded).
+  nx.test.it("lazily loads an added collection on first completion", function(t)
+    -- The full auto-load path THROUGH the source: add a temp VSCode collection, and
+    -- prove its snippet is discovered + read on the first completion in that filetype and
+    -- offered in the menu (nothing was preloaded).
     local dir = nx.test.tempdir()
     nx.await(nx.fs.write(
       dir .. "/package.json",
@@ -71,18 +71,16 @@ nx.test.describe("nxvim-snippets completion source", function()
         contributes = { snippets = { { language = "lua", path = "lua.json" } } },
       })
     ))
-    nx.await(
-      nx.fs.write(
-        dir .. "/lua.json",
-        nx.json.encode({
-          ["for range"] = { prefix = "forr", body = "for ${1:i} = 1, ${2:n} do$0 end" },
-        })
-      )
-    )
+    nx.await(nx.fs.write(
+      dir .. "/lua.json",
+      nx.json.encode({
+        ["for range"] = { prefix = "forr", body = "for ${1:i} = 1, ${2:n} do$0 end" },
+      })
+    ))
     snip._byft = {}
-    snip._index = nil
-    snip._lazy = {}
-    snip.setup({ friendly_snippets = { dir } })
+    snip._collections = {}
+    snip.setup({})
+    snip.add_collection(dir)
     nx.complete.setup({})
 
     -- The snippet lives only on disk — nothing is registered until a completion asks.

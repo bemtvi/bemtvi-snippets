@@ -51,10 +51,12 @@ nx.plugins({
         { trigger = "today", body = "${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}$0" },
       })
 
-      -- 5. (Optional) Load a whole VSCode collection. Point this at a friendly-snippets
-      --    checkout to get thousands of snippets across languages:
+      -- 5. (Optional) Get thousands of snippets across languages from friendly-snippets:
+      --    add it to the runtimepath (as a plugin dependency) and it's discovered
+      --    automatically — lazily, per filetype. For a collection that ISN'T on the
+      --    runtimepath, point discovery at it explicitly:
       --
-      --    nx.await(snip.load_vscode(os.getenv("HOME") .. "/friendly-snippets"))
+      --    snip.add_collection(os.getenv("HOME") .. "/friendly-snippets")
     end,
   },
 })

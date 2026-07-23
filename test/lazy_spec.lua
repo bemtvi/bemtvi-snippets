@@ -61,6 +61,7 @@ local function reset()
   snip._byft = {}
   snip._index = nil
   snip._lazy = {}
+  snip._collections = {}
   snip.config.friendly_snippets = true
 end
 
@@ -69,7 +70,7 @@ nx.test.describe("nxvim-snippets lazy discovery", function()
     reset()
     local dir = write_collection(nx.test.tempdir())
 
-    local index = nx.await(vscode.discover({ dir }))
+    local index = nx.await(vscode.discover({ dir }, false))
 
     -- The index maps each filetype to its snippet FILE(S) — the "all" scope and each
     -- language, resolved to absolute paths under the collection root.
@@ -88,16 +89,16 @@ nx.test.describe("nxvim-snippets lazy discovery", function()
     local dir = nx.test.tempdir()
     nx.await(nx.fs.write(dir .. "/package.json", nx.json.encode({ name = "not-a-collection" })))
 
-    -- Unlike `load` (fail-loud on an explicit dir), a sweep just skips it — no error,
+    -- A package.json that is not a snippet collection is silently skipped — no error,
     -- empty index.
-    local index = nx.await(vscode.discover({ dir }))
+    local index = nx.await(vscode.discover({ dir }, false))
     nx.test.expect(next(index) == nil).to_be(true)
   end)
 
   nx.test.it("loads only the requested filetype (plus the global 'all' scope)", function()
     reset()
     local dir = write_collection(nx.test.tempdir())
-    snip.config.friendly_snippets = { dir }
+    snip.add_collection(dir)
 
     nx.await(snip._ensure_lazy("lua"))
 
@@ -115,7 +116,7 @@ nx.test.describe("nxvim-snippets lazy discovery", function()
   nx.test.it("caches per filetype — a second load is memoized, not re-read", function()
     reset()
     local dir = write_collection(nx.test.tempdir())
-    snip.config.friendly_snippets = { dir }
+    snip.add_collection(dir)
 
     nx.await(snip._ensure_lazy("lua"))
     local first = snip._lazy["lua"]
@@ -129,12 +130,23 @@ nx.test.describe("nxvim-snippets lazy discovery", function()
     nx.test.expect(#snip.get("lua")).to_be(count_after_first)
   end)
 
-  nx.test.it("does nothing when auto-loading is disabled", function()
+  nx.test.it("does nothing when discovery is off and no collection is added", function()
     reset()
-    local dir = write_collection(nx.test.tempdir())
-    snip.config.friendly_snippets = false
+    snip.config.friendly_snippets = false -- no runtimepath sweep, no added collections
 
     nx.await(snip._ensure_lazy("lua"))
     nx.test.expect(has_trigger(snip.get("lua"), "lf")).to_be(false)
+  end)
+
+  nx.test.it("add_collection loads even with the runtimepath sweep off", function()
+    reset()
+    local dir = write_collection(nx.test.tempdir())
+    -- friendly_snippets=false disables only the rtp sweep; an explicitly-added
+    -- collection is still discovered and lazy-loaded.
+    snip.config.friendly_snippets = false
+    snip.add_collection(dir)
+
+    nx.await(snip._ensure_lazy("lua"))
+    nx.test.expect(has_trigger(snip.get("lua"), "lf")).to_be(true)
   end)
 end)

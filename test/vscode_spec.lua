@@ -1,11 +1,10 @@
--- The VSCode-format loader: write a miniature friendly-snippets collection to a temp
--- dir and prove it's read, normalized (string + list prefix/body), and registered per
--- language through the async nx.fs seam.
+-- The VSCode-format loader internals: `discover` indexes a collection's manifest, and
+-- `load_paths` reads the indexed files and normalizes them (a string OR list `prefix` and
+-- `body`, per VSCode) into `{ trigger, body, description }` entries.
 
-local snip = require("nxvim-snippets")
 local vscode = require("nxvim-snippets.vscode")
 
--- Write a fake collection into `dir` and return it.
+-- Write a miniature friendly-snippets collection into `dir` and return it.
 local function write_collection(dir)
   nx.await(nx.fs.write(
     dir .. "/package.json",
@@ -38,9 +37,9 @@ local function write_collection(dir)
       nx.json.encode({ log = { prefix = "log", body = "console.log($1)" } })
     )
   )
+  return dir
 end
 
--- Find a registered snippet by trigger in a list.
 local function by_trigger(list, trigger)
   for _, s in ipairs(list) do
     if s.trigger == trigger then
@@ -51,15 +50,20 @@ local function by_trigger(list, trigger)
 end
 
 nx.test.describe("nxvim-snippets.vscode loader", function()
-  nx.test.it("loads a package.json collection and registers per language", function()
-    snip._byft = {}
-    local dir = nx.test.tempdir()
-    write_collection(dir)
-    nx.await(vscode.load(dir, function(ft, list)
-      snip.add(ft, list)
-    end))
+  nx.test.it("indexes a collection's manifest per language", function()
+    local dir = write_collection(nx.test.tempdir())
 
-    local lua = snip.get("lua")
+    local index = nx.await(vscode.discover({ dir }, false))
+
+    nx.test.expect(index["lua"][1]).to_be(dir .. "/lua.json")
+    nx.test.expect(index["javascript"][1]).to_be(dir .. "/js.json")
+  end)
+
+  nx.test.it("reads + normalizes the indexed files (string / list prefix + body)", function()
+    local dir = write_collection(nx.test.tempdir())
+    local index = nx.await(vscode.discover({ dir }, false))
+
+    local lua = nx.await(vscode.load_paths(index["lua"]))
     local lf = by_trigger(lua, "lf")
     nx.test.expect(lf ~= nil).to_be(true)
     -- The list `body` was joined with newlines.
@@ -69,16 +73,8 @@ nx.test.describe("nxvim-snippets.vscode loader", function()
     nx.test.expect(by_trigger(lua, "req") ~= nil).to_be(true)
     nx.test.expect(by_trigger(lua, "require") ~= nil).to_be(true)
 
-    -- The other language landed in its own bucket.
-    nx.test.expect(by_trigger(snip.get("javascript"), "log") ~= nil).to_be(true)
-  end)
-
-  nx.test.it("fails loud when package.json has no snippets", function()
-    local dir = nx.test.tempdir()
-    nx.await(nx.fs.write(dir .. "/package.json", nx.json.encode({ name = "empty" })))
-    local ok = pcall(function()
-      nx.await(vscode.load(dir, function() end))
-    end)
-    nx.test.expect(ok).to_be(false)
+    -- The other language's file is a separate read.
+    local js = nx.await(vscode.load_paths(index["javascript"]))
+    nx.test.expect(by_trigger(js, "log") ~= nil).to_be(true)
   end)
 end)
