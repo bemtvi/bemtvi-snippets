@@ -47,14 +47,14 @@ M.config = {
   -- `nx.complete` engine with this gate — no need to list it in `nx.complete.setup`.
   min_chars = 2,
   -- Auto-discover VSCode snippet collections (e.g. friendly-snippets) on the
-  -- runtimepath. Put friendly-snippets on the runtimepath — as a plugin dependency in
+  -- runtimepath. Put such a collection on the runtimepath — as a plugin dependency in
   -- your plugin manager — and its snippets appear in completion automatically. Nothing is
   -- read up front: only each collection's small `package.json` manifest is scanned to
   -- learn which files feed which filetype; a language's actual snippet files are read the
   -- first time a completion needs them, then cached (see `M._ensure_lazy`). Set `false`
   -- to skip the runtimepath sweep — off-runtimepath collections added with
   -- `M.add_collection` are still discovered either way.
-  friendly_snippets = true,
+  discover_runtimepath = true,
 }
 
 -- Extra VSCode collection roots to auto-discover, on top of the runtimepath sweep —
@@ -74,7 +74,7 @@ M._lazy = {}
 -- Whether there is anything to auto-discover at all: the runtimepath sweep, or at least
 -- one explicitly-added collection.
 function M._discovery_on()
-  return M.config.friendly_snippets ~= false or #M._collections > 0
+  return M.config.discover_runtimepath ~= false or #M._collections > 0
 end
 
 -- Add one or more VSCode collection roots (a dir string, or a list of them) to the
@@ -96,10 +96,10 @@ function M.add_collection(dirs)
 end
 
 -- Ensure the manifest index is built (once). Unions the runtimepath sweep (unless
--- `friendly_snippets` is `false`) with the explicitly-added `_collections`.
+-- `discover_runtimepath` is `false`) with the explicitly-added `_collections`.
 function M._ensure_index()
   if not M._index then
-    M._index = vscode.discover(M._collections, M.config.friendly_snippets ~= false)
+    M._index = vscode.discover(M._collections, M.config.discover_runtimepath ~= false)
   end
   return M._index
 end
@@ -209,7 +209,7 @@ function M.setup(opts)
   end
 
   -- A reconfigure re-discovers: drop the memoized manifest scan and per-filetype load
-  -- caches so a changed `friendly_snippets` (e.g. toggled off) takes effect.
+  -- caches so a changed `discover_runtimepath` (e.g. toggled off) takes effect.
   -- Already-registered snippets in `_byft` and added `_collections` are left in place.
   M._index = nil
   M._lazy = {}

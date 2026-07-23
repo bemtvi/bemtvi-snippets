@@ -62,7 +62,7 @@ local function reset()
   snip._index = nil
   snip._lazy = {}
   snip._collections = {}
-  snip.config.friendly_snippets = true
+  snip.config.discover_runtimepath = true
 end
 
 nx.test.describe("nxvim-snippets lazy discovery", function()
@@ -132,7 +132,7 @@ nx.test.describe("nxvim-snippets lazy discovery", function()
 
   nx.test.it("does nothing when discovery is off and no collection is added", function()
     reset()
-    snip.config.friendly_snippets = false -- no runtimepath sweep, no added collections
+    snip.config.discover_runtimepath = false -- no runtimepath sweep, no added collections
 
     nx.await(snip._ensure_lazy("lua"))
     nx.test.expect(has_trigger(snip.get("lua"), "lf")).to_be(false)
@@ -141,9 +141,9 @@ nx.test.describe("nxvim-snippets lazy discovery", function()
   nx.test.it("add_collection loads even with the runtimepath sweep off", function()
     reset()
     local dir = write_collection(nx.test.tempdir())
-    -- friendly_snippets=false disables only the rtp sweep; an explicitly-added
+    -- discover_runtimepath=false disables only the rtp sweep; an explicitly-added
     -- collection is still discovered and lazy-loaded.
-    snip.config.friendly_snippets = false
+    snip.config.discover_runtimepath = false
     snip.add_collection(dir)
 
     nx.await(snip._ensure_lazy("lua"))

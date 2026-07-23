@@ -76,7 +76,7 @@ never read.
 
 For a collection that **isn't** on the runtimepath, register it explicitly with
 `snip.add_collection("/path/to/collection")` (a dir, or a list of dirs) — it joins
-the same lazy discovery. Set `setup{ friendly_snippets = false }` to turn the
+the same lazy discovery. Set `setup{ discover_runtimepath = false }` to turn the
 runtimepath sweep off; explicitly-added collections are still discovered either way.
 
 > The snippet source auto-joins your `nx.complete` engine as soon as it's registered
@@ -121,7 +121,7 @@ variable falls back to its `${VAR:default}` (or empty), matching VSCode.
 - `snip.setup(opts)` — register the source (it auto-joins `nx.complete`) + jump
   keymaps. `opts.jump_next` / `opts.jump_prev` set the jump keys (or `false` to skip
   and map the functions yourself). `opts.min_chars` (default 2) sets the source's own
-  prefix gate — how many typed chars before snippets show. `opts.friendly_snippets`
+  prefix gate — how many typed chars before snippets show. `opts.discover_runtimepath`
   (default `true`) auto-discovers VSCode collections on the runtimepath and lazy-loads
   them per filetype; `false` turns the runtimepath sweep off.
 - `snip.add(ft, list)` — register `{ trigger, body, description? }` entries for a
