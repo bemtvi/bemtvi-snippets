@@ -11,11 +11,13 @@
 --   a repeated N         a mirror (every occurrence renders index N's default)
 --   $VAR / ${VAR}        a variable (resolved at expand; unknown ⇒ empty / default)
 --   ${VAR:default}       a variable with a fallback node list
+--   ${N/re/fmt/opts}     a transform (and the variable form `${VAR/…/…/}`) —
+--                        parsed here, applied by transform.lua; a TABSTOP transform
+--                        is re-applied live by the session as its source changes
 --   \$  \}  \\           escapes (and \, \| inside a choice list)
 --
--- Transforms (`${N/regex/format/opts}`, `${VAR/…/…/}`) are rejected LOUD rather than
--- silently dropped — the project's no-silent-stubs rule. They're a documented gap
--- (they need a live regex mirror; see the README), not a stub that quietly misbehaves.
+-- A malformed body raises rather than being silently dropped (the project's
+-- no-silent-stubs rule), so a snippet never mis-expands quietly.
 
 local M = {}
 

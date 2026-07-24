@@ -1,159 +1,78 @@
 # nxvim-snippets
 
-A snippet engine for [nxvim](../../nxvim), built **entirely on the native `nx.*`
-plugin API** — no snippet syntax lives in the editor core. It loads
-VSCode-format snippet collections (e.g. [friendly-snippets](https://github.com/rafamadriz/friendly-snippets)), offers them in the
-completion menu, and expands the chosen one into a live tabstop session with
-mirrors.
+A snippet engine for [nxvim](https://github.com/davidrios/nxvim), built **entirely
+on the native `nx.*` plugin API** — no snippet syntax lives in the editor core. It
+loads VSCode-format snippet collections (e.g.
+[friendly-snippets](https://github.com/rafamadriz/friendly-snippets)), offers them in
+the completion menu, and expands the chosen one into a live tabstop session with
+mirrors, choices, and transforms.
 
-It is the nxvim answer to LuaSnip / vsnip: the same LSP snippet-body grammar and
-the same VSCode-collection loading, re-expressed in nxvim's idiom and standing
-entirely on five generic core primitives.
-
-## Why it's a plugin (and what it stands on)
-
-nxvim's core stays bare: it grows *generic* text-editing seams, and features like
-this snippet engine are plain Lua on top. Five primitives make it possible — none
-of them mentions "snippet":
-
-| Primitive | Used for |
-| --- | --- |
-| `nx.buf.set_text` | splice the expansion over the trigger word; update mirrors inline |
-| extmark **gravity** (`right_gravity=false` / `end_right_gravity=true`) | anchor each tabstop as a *growing* range so typed text is swallowed, not pushed outside |
-| `nx.buf.attach{ on_bytes }` | react to each edit to keep mirrors in sync; tear down on a reload |
-| `nx.complete.source` item `on_accept` | the completion row that *expands* instead of inserting literal text |
-| `nx.win.set_cursor` | jump the caret between tabstops |
-
-See `docs/specs/2026-07-21-snippet-engine-primitives.md` in the nxvim repo for the
-design.
+It is the nxvim answer to LuaSnip / vsnip: the same LSP snippet-body grammar and the
+same VSCode-collection loading, re-expressed in nxvim's idiom and standing entirely
+on generic core primitives (`nx.buf.set_text`, extmark gravity, `nx.buf.attach`,
+`nx.complete`'s `on_accept`, `nx.win.select_range`) — none of which mentions
+"snippet".
 
 ## Install
 
-Put the repo on your `runtimepath` (via your plugin manager, or `nx.plugins`).
-`plugin/nxvim-snippets.lua` auto-registers the completion source and jump keymaps.
-
-## Quick start
-
-```lua
-local snip = require("nxvim-snippets")
-snip.setup({})
-
--- Enable the completion engine however you like — the snippet source joins it
--- automatically (registering a source activates it; there's nothing to route):
-nx.complete.setup({ sources = { { "buffer" } } })
-
--- Add snippets inline …
-snip.add("lua", {
-  { trigger = "lf", body = "local function ${1:name}(${2:args})\n\t$0\nend" },
-})
-
--- … or point discovery at a VSCode collection that isn't on the runtimepath:
-snip.add_collection("/path/to/snippets-collection")
-```
-
-### friendly-snippets (automatic, lazy)
-
-The easiest way to get a big snippet library: add [friendly-snippets](https://github.com/rafamadriz/friendly-snippets) to your
-**runtimepath** — as a plugin dependency in your plugin manager — and do nothing
-else. `snip.setup{}` discovers any VSCode collection on the runtimepath and offers
-its snippets in completion automatically.
+Declare it with the built-in `:Plugins` manager and run `:PluginSync`. Listing
+friendly-snippets as a dependency is all it takes to get a large snippet library —
+it lands on the runtimepath, and discovery finds it lazily, per filetype:
 
 ```lua
--- e.g. with nx.plugins, list friendly-snippets as a dependency of this plugin — that
--- alone puts it on the runtimepath, no separate top-level spec needed:
-nx.plugins.add({
-  { "nxvim/nxvim-snippets", deps = { "rafamadriz/friendly-snippets" },
-    config = function() require("nxvim-snippets").setup({}) end },
+nx.plugins({
+  {
+    "davidrios/nxvim-snippets",
+    deps = { "rafamadriz/friendly-snippets" },
+    config = function()
+      require("nxvim-snippets").setup({})
+    end,
+  },
 })
 ```
 
-Loading is **lazy and cached**, so a 9,000-snippet collection costs almost nothing
-up front: `setup{}` reads only each collection's small `package.json` manifest to
-learn which files feed which filetype. A language's actual snippet files are read
-the **first time a completion needs that filetype**, then cached — every later
-keystroke is served from memory with no disk I/O, and languages you never edit are
-never read.
+Type a trigger, accept the completion row with `<C-y>`, and you land in the snippet
+on the first tabstop. `<C-j>` / `<C-k>` jump to the next / previous one.
 
-For a collection that **isn't** on the runtimepath, register it explicitly with
-`snip.add_collection("/path/to/collection")` (a dir, or a list of dirs) — it joins
-the same lazy discovery. Set `setup{ discover_runtimepath = false }` to turn the
-runtimepath sweep off; explicitly-added collections are still discovered either way.
+## Documentation
 
-> The snippet source auto-joins your `nx.complete` engine as soon as it's registered
-> (even if you `nx.complete.setup{}` *before* loading this plugin). List
-> `{ "nxvim-snippets", min_chars = 2, priority = … }` in `sources` only to override its
-> options, and use `nx.complete.setup{ exclusive = true }` if you'd rather opt out of
-> auto-join and control the source list yourself.
+Full docs — collections and lazy loading, the snippet body grammar (tabstops,
+placeholders, choices, mirrors, transforms, variables), the tabstop session, the
+completion integration, and the whole API — live in the help file. The same source
+renders both on GitHub and in the editor:
 
-Type a trigger, accept the completion row (`<C-y>`), and you land in the snippet
-with the caret on the first tabstop. `<C-j>` / `<C-k>` jump to the next / previous
-tabstop (configurable).
-
-## Snippet body grammar
-
-The LSP / VSCode syntax:
-
-| Form | Meaning |
-| --- | --- |
-| `$1` `${1}` | a tabstop (`$0` is the final one) |
-| `${1:default}` | a placeholder (may nest) |
-| `${1\|a,b,c\|}` | a choice — landing on it opens a dropdown of the alternatives to pick from |
-| a repeated `$1` | a mirror — every occurrence renders index 1's text |
-| `$TM_FILENAME` `${CURRENT_YEAR}` | a variable (resolved at expand) |
-| `${VAR:fallback}` | a variable with a default |
-| `${1/regex/format/opts}` | a transform (live for a tabstop, static for a variable) |
-| `\$` `\}` `\\` | escapes |
-
-**Transforms** run the regex on nxvim's native engine (`nx.regex`) and build the
-replacement from the `format` mini-language: `$1` / `${1}` group references,
-`${1:/upcase}` `/downcase` `/capitalize` `/pascalcase` `/camelcase` case ops,
-`${1:+if}` / `${1:-else}` / `${1:?if:else}` conditionals, and the `g` / `i`
-options. A tabstop transform (`${1/…/…/}`) recomputes **live** as you type the
-source tabstop.
-
-Variables resolved: the `CURRENT_*` date/clock family, `TM_FILENAME*` /
-`TM_DIRECTORY` / `TM_FILEPATH`, `TM_LINE_NUMBER` / `TM_LINE_INDEX`,
-`TM_CURRENT_LINE`, `TM_SELECTED_TEXT`, `CLIPBOARD`, `UUID`, `RANDOM`. An unknown
-variable falls back to its `${VAR:default}` (or empty), matching VSCode.
-
-## API
-
-- `snip.setup(opts)` — register the source (it auto-joins `nx.complete`) + jump
-  keymaps. `opts.jump_next` / `opts.jump_prev` set the jump keys (or `false` to skip
-  and map the functions yourself). `opts.min_chars` (default 2) sets the source's own
-  prefix gate — how many typed chars before snippets show. `opts.discover_runtimepath`
-  (default `true`) auto-discovers VSCode collections on the runtimepath and lazy-loads
-  them per filetype; `false` turns the runtimepath sweep off.
-- `snip.add(ft, list)` — register `{ trigger, body, description? }` entries for a
-  filetype. The `"all"` filetype is offered for every buffer (VSCode's global scope).
-- `snip.add_collection(dirs)` — add a VSCode collection root (a dir, or a list) to the
-  lazy auto-discovery, for a collection that isn't on the runtimepath.
-- `snip.expand(body)` — expand a body at the cursor right now.
-- `snip.jump_next()` / `snip.jump_prev()` — jump tabstops (return whether a session
-  was live, so a custom keymap can fall through).
-- `snip.abort()` — end the active session.
-- `snip.active()` — whether a session is live.
+- In editor: `:help nxvim-snippets`
+- On GitHub: [doc/nxvim-snippets.md](./doc/nxvim-snippets.md) (the help source)
 
 ## Coverage
 
-Against the full **friendly-snippets** collection (9,422 snippets across 127
-filetypes): **all 9,422 parse, and 9,420 (99.98%) lay out and expand**. The 2 that
-don't use a regex **lookbehind** (`(?<=…)`), which nxvim's regex engine (the Rust
-`regex` crate) can't compile — those **fail loud** with a clear error rather than
-mis-expanding.
+Against the full friendly-snippets collection (9,422 snippets across 127 filetypes):
+all 9,422 parse, and 9,420 (99.98%) lay out and expand. The 2 that don't use a regex
+lookbehind (`(?<=…)`), which nxvim's regex engine can't compile — those fail **loud**
+rather than mis-expanding.
 
-Remaining scaffold-level limits: a placeholder's default text isn't auto-*selected*
-(nxvim has no vim-style Select mode), so jumping to `${1:default}` places the caret
-at its start rather than selecting the word. Continuation lines aren't re-indented
-to the anchor.
+## Trying it locally
 
-## Tests
+```sh
+NXVIM_CONFIG=examples nxvim examples/sample.lua
+```
+
+(run from a checkout of this repo). In insert mode type `lf`, `req`, `log`, or
+`today`, accept the row with `<C-y>`, and jump with `<C-j>` / `<C-k>`.
+
+## Development
 
 ```sh
 nxvim --test-plugin .
 ```
 
-Covers the parser + layout, variable resolution, the VSCode loader, and the full
-session and completion paths end-to-end.
+Covers the parser and layout, transforms, variable resolution, the VSCode loader and
+its lazy per-filetype caching, and the full session and completion paths end-to-end.
 
-[friendly-snippets]: https://github.com/rafamadriz/friendly-snippets
+The vimdoc `doc/nxvim-snippets.txt` is **generated** from `doc/nxvim-snippets.md` via
+[panvimdoc](https://github.com/kdheepak/panvimdoc): edit the `.md`, then run
+`bash scripts/gen-vimdoc.sh` (needs `pandoc` + `git`). Never edit the `.txt` by hand.
+
+## License
+
+MIT © David Rios
