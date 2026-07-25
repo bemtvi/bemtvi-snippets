@@ -59,10 +59,20 @@ end
 -- Restore the module to a clean slate between cases (its state is a singleton).
 local function reset()
   snip._byft = {}
-  snip._index = nil
-  snip._lazy = {}
   snip._collections = {}
   snip.config.discover_runtimepath = true
+  snip._invalidate_discovery() -- the manifest index, the per-ft loads, and what they read
+end
+
+-- How many entries in `list` carry `trigger`.
+local function count_trigger(list, trigger)
+  local n = 0
+  for _, s in ipairs(list) do
+    if s.trigger == trigger then
+      n = n + 1
+    end
+  end
+  return n
 end
 
 nx.test.describe("nxvim-snippets lazy discovery", function()
@@ -128,6 +138,62 @@ nx.test.describe("nxvim-snippets lazy discovery", function()
     nx.await(snip._ensure_lazy("lua"))
     nx.test.expect(snip._lazy["lua"]).to_be(first)
     nx.test.expect(#snip.get("lua")).to_be(count_after_first)
+  end)
+
+  nx.test.it("a reconfigure re-discovers without duplicating what it already read", function()
+    reset()
+    local dir = write_collection(nx.test.tempdir())
+    snip.add_collection(dir)
+    nx.await(snip._ensure_lazy("lua"))
+    nx.test.expect(count_trigger(snip.get("lua"), "lf")).to_be(1)
+
+    -- `setup` drops the discovery caches so a changed config re-discovers. The
+    -- re-read must REPLACE the discovered snippets, not append a second copy of
+    -- every one of them (a duplicated row for every trigger in the collection).
+    snip.setup({})
+    nx.await(snip._ensure_lazy("lua"))
+    nx.test.expect(count_trigger(snip.get("lua"), "lf")).to_be(1)
+    nx.test.expect(count_trigger(snip.get("lua"), "todo")).to_be(1)
+  end)
+
+  nx.test.it("the same collection root added twice yields one copy of each snippet", function()
+    reset()
+    local dir = write_collection(nx.test.tempdir())
+    snip.add_collection(dir)
+    snip.add_collection(dir) -- e.g. also reachable via the runtimepath
+
+    nx.await(snip._ensure_lazy("lua"))
+    nx.test.expect(count_trigger(snip.get("lua"), "lf")).to_be(1)
+  end)
+
+  nx.test.it("user-added snippets survive a reconfigure", function()
+    reset()
+    snip.add("lua", { { trigger = "mine", body = "$0" } })
+    snip.setup({})
+    nx.test.expect(count_trigger(snip.get("lua"), "mine")).to_be(1)
+  end)
+
+  nx.test.it("skips a collection whose package.json is malformed JSON", function()
+    reset()
+    local bad = nx.test.tempdir()
+    nx.await(nx.fs.write(bad .. "/package.json", "{ this is not json"))
+    local good = write_collection(nx.test.tempdir())
+
+    -- One unparseable manifest must not sink the sweep: the good collection is still
+    -- indexed (discovery is documented as skipping a bad entry silently).
+    local index = nx.await(vscode.discover({ bad, good }, false))
+    nx.test.expect(index["lua"] ~= nil).to_be(true)
+  end)
+
+  nx.test.it("skips a malformed snippet file without sinking the language", function()
+    reset()
+    local dir = nx.test.tempdir()
+    nx.await(nx.fs.write(dir .. "/broken.json", "{ nope"))
+    nx.await(nx.fs.write(dir .. "/ok.json", nx.json.encode({ t = { prefix = "ok", body = "ok" } })))
+
+    -- `load_paths` reports the bad file and carries on with the rest.
+    local list = nx.await(vscode.load_paths({ dir .. "/broken.json", dir .. "/ok.json" }))
+    nx.test.expect(has_trigger(list, "ok")).to_be(true)
   end)
 
   nx.test.it("does nothing when discovery is off and no collection is added", function()

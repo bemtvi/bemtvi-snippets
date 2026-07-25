@@ -3,6 +3,19 @@
 -- full user-facing path — type a trigger, accept, land in the snippet.
 
 local snip = require("nxvim-snippets")
+local source = require("nxvim-snippets.source")
+
+nx.test.describe("nxvim-snippets completion row docs", function()
+  nx.test.it("previews the body as markdown fenced with the buffer's filetype", function()
+    local doc = source.preview_doc({ trigger = "lf", body = "local $1" }, "lua")
+    nx.test.expect(doc).to_be("```lua\nlocal $1\n```")
+  end)
+
+  nx.test.it("leads with the description when the snippet has one", function()
+    local snippet = { trigger = "lf", body = "local $1", description = "a local" }
+    nx.test.expect(source.preview_doc(snippet, "lua")).to_be("a local\n\n```lua\nlocal $1\n```")
+  end)
+end)
 
 nx.test.describe("nxvim-snippets completion source", function()
   nx.test.before_each(function()
@@ -97,6 +110,34 @@ nx.test.describe("nxvim-snippets completion source", function()
       return snip.active()
     end)
     nx.test.expect(t:line(1)).to_be("for i = 1, n do end")
+  end)
+
+  nx.test.it("renders a selected row's docs lazily, not for every candidate", function(t)
+    -- The row carries no inline `doc`: the engine asks the source's `resolve` for the
+    -- ONE row the user lands on. Spy on the preview builder to prove both halves —
+    -- nothing is rendered while merely offering, and selecting fires it.
+    local real, calls = source.preview_doc, {}
+    source.preview_doc = function(snippet, ft)
+      calls[#calls + 1] = snippet.trigger
+      return real(snippet, ft)
+    end
+    local ok, err = pcall(function()
+      snip.add("lua", { { trigger = "forr", body = "for ${1:i} = 1, ${2:n} do$0 end" } })
+      t:cmd("enew")
+      t:cmd("set filetype=lua")
+      t:feed("ifo")
+      t:sleep(30)
+      nx.test.expect(#calls).to_be(0) -- offering rendered no docs at all
+      t:feed("<C-n>") -- select the row → the engine resolves its docs
+      t:wait_for(function()
+        return #calls > 0
+      end)
+      nx.test.expect(calls[1]).to_be("forr")
+    end)
+    source.preview_doc = real
+    if not ok then
+      error(err, 0)
+    end
   end)
 
   nx.test.it("a snippet trigger outranks a fuzzy buffer word", function(t)

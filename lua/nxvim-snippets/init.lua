@@ -32,9 +32,17 @@ local parser = require("nxvim-snippets.parser")
 
 local M = {}
 
--- Registered snippets, keyed by filetype: `_byft[ft] = { { trigger, body, description }, ... }`.
--- The `"all"` bucket (VSCode's global scope) is offered for every filetype.
+-- Snippets registered BY THE USER (`M.add`), keyed by filetype:
+-- `_byft[ft] = { { trigger, body, description }, ... }`. The `"all"` bucket (VSCode's
+-- global scope) is offered for every filetype.
 M._byft = {}
+
+-- Snippets read from a discovered VSCode collection, in the same shape. Kept apart from
+-- the user's own because they are a CACHE of what `_lazy` read: dropping the lazy-load
+-- memo has to drop these with it, or the re-read appends a second copy of every snippet
+-- in the collection (one duplicate completion row per trigger). User snippets are state
+-- and always survive.
+M._discovered = {}
 
 M.config = {
   -- Insert-mode keys to jump between tabstops. Installed by `setup`; a no-op when no
@@ -68,8 +76,13 @@ M._index = nil
 -- Per-filetype lazy-load promises: `_lazy[ft]` is the (in-flight or settled) promise
 -- that reads + registers `ft`'s snippet files. Memoizing it is the cache — a completion
 -- keystroke after the first for a filetype awaits an already-resolved promise and does
--- no disk I/O. Reset by `setup` so a reconfigure re-discovers.
+-- no disk I/O. Dropped by `_invalidate_discovery` so a reconfigure re-discovers.
 M._lazy = {}
+
+-- Bumped every time discovery is invalidated. A load that was already in flight when
+-- that happened carries the old generation and drops its result on arrival, instead of
+-- landing in the freshly-cleared store alongside the re-read's copy.
+M._gen = 0
 
 -- Whether there is anything to auto-discover at all: the runtimepath sweep, or at least
 -- one explicitly-added collection.
@@ -80,9 +93,8 @@ end
 -- Add one or more VSCode collection roots (a dir string, or a list of them) to the
 -- auto-discovery — for a collection that isn't on the runtimepath. Lazily loaded per
 -- filetype exactly like a runtimepath collection; no bodies are read until a completion
--- needs them. Drops the memoized index so the new root is picked up on the next
--- completion (call it at config time, before completions start, so already-loaded
--- filetypes see it too).
+-- needs them. Invalidates the discovery caches, so a filetype already loaded picks the
+-- new root up on its next completion too (a root reachable twice is swept once).
 function M.add_collection(dirs)
   if type(dirs) == "string" then
     dirs = { dirs }
@@ -92,7 +104,20 @@ function M.add_collection(dirs)
   for _, dir in ipairs(dirs) do
     M._collections[#M._collections + 1] = dir
   end
+  M._invalidate_discovery()
+end
+
+-- Drop everything derived from discovery — the memoized manifest sweep, the
+-- per-filetype load promises, and the snippets those loads produced — so the next
+-- completion rebuilds it from the current configuration. The three go together: keeping
+-- the snippets while dropping the promise that read them is what duplicated every
+-- discovered snippet on a reconfigure.
+function M._invalidate_discovery()
   M._index = nil
+  M._lazy = {}
+  M._discovered = {}
+  M._get_cache = {}
+  M._gen = M._gen + 1
 end
 
 -- Ensure the manifest index is built (once). Unions the runtimepath sweep (unless
@@ -104,9 +129,9 @@ function M._ensure_index()
   return M._index
 end
 
--- Lazily load the discovered VSCode snippets for filetype `ft` into `_byft`, reading
--- only that filetype's files (plus the global `"all"` bucket `M.get` merges into every
--- filetype) and only the first time — the memoized per-key promise is the cache.
+-- Lazily load the discovered VSCode snippets for filetype `ft` into `_discovered`,
+-- reading only that filetype's files (plus the global `"all"` bucket `M.get` merges into
+-- every filetype) and only the first time — the memoized per-key promise is the cache.
 -- Returns a promise the completion source awaits before offering rows; a no-op promise
 -- when there is nothing to discover.
 function M._ensure_lazy(ft)
@@ -119,8 +144,11 @@ function M._ensure_lazy(ft)
     -- read happens at most once thanks to the `_lazy[key]` promise memo.
     for _, key in ipairs({ ft, "all" }) do
       if key and key ~= "" and not M._lazy[key] then
+        local gen = M._gen
         M._lazy[key] = vscode.load_paths(index[key] or {}):next(function(list)
-          M.add(key, list)
+          if M._gen == gen then
+            M._store(M._discovered, key, list)
+          end
         end)
       end
       if M._lazy[key] then
@@ -130,16 +158,17 @@ function M._ensure_lazy(ft)
   end)()
 end
 
--- Validate + store a snippet list for `ft`. Each entry needs a string `trigger` and a
--- string `body`; `description` is optional. Fails loud on a bad shape (no silent skip).
-function M.add(ft, list)
+-- Validate + append `list` to `store[ft]`. Shared by the public `M.add` (user snippets)
+-- and the lazy loader (discovered ones); each entry needs a string `trigger` and a
+-- string `body`, `description` is optional. Fails loud on a bad shape (no silent skip).
+function M._store(store, ft, list)
   if type(ft) ~= "string" then
     error("nxvim-snippets.add: filetype must be a string, got " .. type(ft))
   end
   if type(list) ~= "table" then
     error("nxvim-snippets.add: expected a list of { trigger, body } for '" .. ft .. "'")
   end
-  local bucket = M._byft[ft] or {}
+  local bucket = store[ft] or {}
   for i, s in ipairs(list) do
     if type(s) ~= "table" or type(s.trigger) ~= "string" then
       error("nxvim-snippets.add: entry " .. i .. " needs a string `trigger`")
@@ -149,20 +178,43 @@ function M.add(ft, list)
     end
     bucket[#bucket + 1] = { trigger = s.trigger, body = s.body, description = s.description }
   end
-  M._byft[ft] = bucket
+  store[ft] = bucket
+  M._get_cache = {} -- the merged per-filetype lists are stale now
 end
 
--- The snippets to offer for filetype `ft`: its own plus the global `"all"` bucket.
+-- Register a snippet list for `ft` (the public entry point; see `_store`).
+function M.add(ft, list)
+  M._store(M._byft, ft, list)
+end
+
+-- The merged per-filetype lists `M.get` hands out, memoized. The completion source
+-- calls `get` on EVERY keystroke, so rebuilding the merge (user + discovered, own
+-- filetype + the global `"all"` scope) each time copied the whole collection —
+-- thousands of entries per keypress with friendly-snippets loaded. Dropped wholesale
+-- whenever a snippet is registered or discovery is invalidated.
+M._get_cache = {}
+
+-- The snippets to offer for filetype `ft`: its own plus the global `"all"` bucket,
+-- user-registered ones first. The returned list is SHARED (memoized) — treat it as
+-- read-only.
 function M.get(ft)
-  local out = {}
-  for _, s in ipairs(M._byft[ft] or {}) do
-    out[#out + 1] = s
+  local cached = M._get_cache[ft]
+  if cached then
+    return cached
   end
-  if ft ~= "all" then
-    for _, s in ipairs(M._byft["all"] or {}) do
+  local out = {}
+  local function append(bucket)
+    for _, s in ipairs(bucket or {}) do
       out[#out + 1] = s
     end
   end
+  append(M._byft[ft])
+  append(M._discovered[ft])
+  if ft ~= "all" then
+    append(M._byft["all"])
+    append(M._discovered["all"])
+  end
+  M._get_cache[ft] = out
   return out
 end
 
@@ -208,11 +260,11 @@ function M.setup(opts)
     M.config[k] = v
   end
 
-  -- A reconfigure re-discovers: drop the memoized manifest scan and per-filetype load
-  -- caches so a changed `discover_runtimepath` (e.g. toggled off) takes effect.
-  -- Already-registered snippets in `_byft` and added `_collections` are left in place.
-  M._index = nil
-  M._lazy = {}
+  -- A reconfigure re-discovers: drop the memoized manifest scan, the per-filetype load
+  -- promises, and the snippets they produced, so a changed `discover_runtimepath` (e.g.
+  -- toggled off) takes effect and the re-read replaces rather than duplicates.
+  -- User-registered snippets (`_byft`) and added `_collections` are left in place.
+  M._invalidate_discovery()
 
   source.register(
     function(ft)

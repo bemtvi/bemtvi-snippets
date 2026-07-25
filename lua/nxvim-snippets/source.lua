@@ -14,7 +14,7 @@ local M = {}
 -- The current buffer's filetype (via the option mirror), or "".
 local function buf_ft(buf)
   local ok, ft = pcall(function()
-    return vim.bo[buf].filetype
+    return nx.bo[buf].filetype
   end)
   return (ok and ft) or ""
 end
@@ -24,12 +24,51 @@ end
 -- `description` as a lead paragraph. So selecting a snippet row shows what it expands
 -- to — the same "function docs" surface LSP items use — instead of nothing when the
 -- snippet has no description. Mirrors the built-in `snippets` source's preview.
-local function preview_doc(snip, ft)
+function M.preview_doc(snip, ft)
   local fenced = "```" .. ft .. "\n" .. snip.body .. "\n```"
   if snip.description and snip.description ~= "" then
     return snip.description .. "\n\n" .. fenced
   end
   return fenced
+end
+
+-- Completion items, memoized per (snippet, filetype). The source re-offers every
+-- snippet of the filetype on EVERY keystroke, so building a fresh item table (and an
+-- `on_accept` closure) each time churned one allocation per snippet per keypress —
+-- thousands of them with a collection like friendly-snippets loaded. The item is
+-- immutable and the engine only reads it, so one instance is reused.
+--
+-- Weak-keyed, so a snippet dropped from the registry (a reconfigure re-reads the
+-- collections) takes its items with it. The items reference their own key, which
+-- Lua 5.4's ephemeron tables collect correctly.
+local ITEMS = setmetatable({}, { __mode = "k" })
+
+local function item_for(snip, ft)
+  local cache = ITEMS[snip]
+  if not cache then
+    cache = {}
+    ITEMS[snip] = cache
+  end
+  local item = cache[ft]
+  if not item then
+    item = {
+      text = snip.trigger,
+      -- The right-aligned kind column, so a snippet row reads `Snippet` and stands
+      -- apart from a buffer word / LSP item (matching the built-in `snippets` source).
+      kind = "Snippet",
+      -- No inline `doc`: the source's `resolve` renders the preview for the ONE row the
+      -- user lands on, instead of rendering every candidate's body on every keystroke.
+      _ft = ft,
+      _snippet = snip,
+      on_accept = function(_item, c)
+        -- The callback OWNS the edit: expand over the trigger range the engine
+        -- computed (P4 → P1/P2/P5 inside the session).
+        session.expand(c.buf, c.start_row, c.start_col, c.end_row, c.end_col, snip.body)
+      end,
+    }
+    cache[ft] = item
+  end
+  return item
 end
 
 -- register(get, min_chars, ensure) — install the source. `get(ft)` returns the snippet
@@ -61,6 +100,12 @@ function M.register(get, min_chars, ensure)
     -- Snippets are cheap in-memory data, so there's nothing to debounce — offer them
     -- as soon as the prefix changes (no lag before the row appears).
     debounce = 0,
+    -- Docs on demand: the engine calls this for the row the user selects, so the
+    -- expansion preview is built once per selection rather than once per candidate per
+    -- keystroke.
+    resolve = function(item)
+      return nx.promise.resolve(M.preview_doc(item._snippet, item._ft))
+    end,
     complete = function(ctx)
       -- Offer every snippet for the filetype; the engine's fuzzy matcher ranks them
       -- against `ctx.prefix` and merges them with the other sources. Returning a promise
@@ -73,20 +118,7 @@ function M.register(get, min_chars, ensure)
           nx.await(ensure(ft))
         end
         for _, snip in ipairs(get(ft)) do
-          ctx.push({
-            text = snip.trigger,
-            -- The right-aligned kind column, so a snippet row reads `Snippet` and stands
-            -- apart from a buffer word / LSP item (matching the built-in `snippets` source).
-            kind = "Snippet",
-            -- Preview the expansion (body + optional description) in the docs float when
-            -- this row is selected.
-            doc = preview_doc(snip, ft),
-            on_accept = function(_item, c)
-              -- The callback OWNS the edit: expand over the trigger range the engine
-              -- computed (P4 → P1/P2/P5 inside the session).
-              session.expand(c.buf, c.start_row, c.start_col, c.end_row, c.end_col, snip.body)
-            end,
-          })
+          ctx.push(item_for(snip, ft))
         end
       end)()
     end,

@@ -59,6 +59,30 @@ nx.test.describe("nxvim-snippets.vscode loader", function()
     nx.test.expect(index["javascript"][1]).to_be(dir .. "/js.json")
   end)
 
+  nx.test.it("maps a VSCode language id onto nxvim's filetype name", function()
+    local dir = nx.test.tempdir()
+    nx.await(nx.fs.write(
+      dir .. "/package.json",
+      nx.json.encode({
+        contributes = {
+          snippets = {
+            { language = "shellscript", path = "sh.json" },
+            { language = "csharp", path = "cs.json" },
+            { language = "typescriptreact", path = "tsx.json" },
+          },
+        },
+      })
+    ))
+
+    local index = nx.await(vscode.discover({ dir }, false))
+
+    -- nxvim names these filetypes `bash` / `c_sharp` / `tsx`; indexed under VSCode's
+    -- own ids they would never match a buffer and the snippets would never show.
+    nx.test.expect(index["bash"] ~= nil).to_be(true)
+    nx.test.expect(index["c_sharp"] ~= nil).to_be(true)
+    nx.test.expect(index["tsx"] ~= nil).to_be(true)
+  end)
+
   nx.test.it("reads + normalizes the indexed files (string / list prefix + body)", function()
     local dir = write_collection(nx.test.tempdir())
     local index = nx.await(vscode.discover({ dir }, false))
