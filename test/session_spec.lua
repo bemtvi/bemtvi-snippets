@@ -55,6 +55,22 @@ nx.test.describe("nxvim-snippets session", function()
     nx.test.expect(t:line(1)).to_be("hi and hi again")
   end)
 
+  nx.test.it("keeps THREE occurrences in sync (later mirrors are not mis-spliced)", function(t)
+    t:cmd("enew")
+    t:feed("i")
+    -- Two mirrors after the primary: each mirror edit shifts the ones further right, so
+    -- syncing them left-to-right splices the second at a stale column.
+    snip.expand("$1 = $1 + $1")
+    t:wait_for(function()
+      return snip.active()
+    end)
+    t:feed("ab")
+    t:wait_for(function()
+      return t:line(1) == "ab = ab + ab"
+    end)
+    nx.test.expect(t:line(1)).to_be("ab = ab + ab")
+  end)
+
   nx.test.it("recomputes a tabstop transform live as you type the source", function(t)
     t:cmd("enew")
     t:feed("i")
@@ -117,6 +133,48 @@ nx.test.describe("nxvim-snippets session", function()
       return t:line(1) == "b-b"
     end)
     nx.test.expect(t:line(1)).to_be("b-b")
+  end)
+
+  nx.test.it("a body ending in a newline leaves no indent-only trailing line", function(t)
+    t:cmd("enew")
+    t:feed("i\t") -- an indented anchor, so continuation lines are prefixed
+    snip.expand("if $1\n")
+    t:wait_for(function()
+      return snip.active()
+    end)
+    -- The trailing newline ends the body; there is no next line to indent, so the
+    -- expansion must not leave a whitespace-only one behind.
+    nx.test.expect(t:lines()).to_equal({ "\tif ", "" })
+  end)
+
+  nx.test.it("converts a body's leading tabs to spaces in an expandtab buffer", function(t)
+    t:cmd("enew")
+    t:cmd("set expandtab shiftwidth=2")
+    t:feed("i")
+    -- The body is tab-indented (every VSCode collection is); an `expandtab` buffer must
+    -- get its own indent unit instead of a hard tab.
+    snip.expand("if $1 then\n\t$0\nend")
+    t:wait_for(function()
+      return snip.active()
+    end)
+    nx.test.expect(t:lines()).to_equal({ "if  then", "  ", "end" })
+  end)
+
+  nx.test.it("a jump after switching buffers ends the session, editing nothing", function(t)
+    t:cmd("enew")
+    t:feed("i")
+    snip.expand("wrap($1, $2)$0")
+    t:wait_for(function()
+      return snip.active()
+    end)
+    -- Leave for a different buffer. The session's anchors belong to the old buffer, so
+    -- jumping must NOT drive the caret/selection here (it would land at the old
+    -- buffer's coordinates in this window and corrupt an unrelated buffer).
+    t:cmd("enew")
+    nx.test.expect(snip.jump_next()).to_be(false)
+    nx.test.expect(snip.active()).to_be(false)
+    t:feed("ix")
+    nx.test.expect(t:line(1)).to_be("x")
   end)
 
   nx.test.it("jump_prev at the first tabstop stays put without erroring", function(t)

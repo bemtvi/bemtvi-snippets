@@ -56,85 +56,161 @@ local function split_lines(text)
   return out
 end
 
--- Absolute (row, col) of byte offset `off` within `text` inserted at (sr, sc). 0-based
--- row; col is a byte offset within its line. Later lines of the insertion start at
--- col 0 (no re-indent in this scaffold).
-local function abs_pos(text, off, sr, sc)
-  local before = text:sub(1, off)
-  local nl, last = 0, 0
-  for i = 1, #before do
-    if before:byte(i) == 10 then
-      nl, last = nl + 1, i
+-- A mapper from a byte offset within `text` (inserted at 0-based row `sr`, byte column
+-- `sc`) to its absolute (row, col). Built once per expansion over the text's newline
+-- offsets, so each of the (two per occurrence) lookups is a binary search rather than a
+-- fresh O(offset) substring scan.
+local function pos_mapper(text, sr, sc)
+  local nls, from = {}, 1
+  while true do
+    local nl = text:find("\n", from, true)
+    if not nl then
+      break
     end
+    nls[#nls + 1] = nl - 1 -- 0-based offset of the newline byte
+    from = nl + 1
   end
-  if nl == 0 then
-    return sr, sc + off
+  return function(off)
+    -- How many newlines lie strictly before `off` (the row delta).
+    local lo, hi = 0, #nls
+    while lo < hi do
+      local mid = (lo + hi + 1) // 2
+      if nls[mid] < off then
+        lo = mid
+      else
+        hi = mid - 1
+      end
+    end
+    if lo == 0 then
+      return sr, sc + off
+    end
+    return sr + lo, off - (nls[lo] + 1)
   end
-  return sr + nl, off - last
 end
 
--- Re-indent a multi-line expansion so every line after the first is prefixed with
--- `indent` (the anchor line's leading whitespace), and remap each tabstop occurrence's
--- byte spans onto the new offsets. A single-line body — or no indent — is returned
--- untouched. Mirrors the native engine's continuation-line indenting.
-local function reindent(text, stops, indent)
-  if indent == "" or not text:find("\n", 1, true) then
-    return text, stops
+-- The buffer's indent unit for one leading TAB of a snippet body. VSCode collections
+-- are tab-indented; a buffer with `'expandtab'` must get its own spaces instead of a
+-- hard tab (`'shiftwidth'`, or `'tabstop'` when shiftwidth follows it via the 0
+-- sentinel), the way every other indent in that buffer is produced.
+local function indent_unit(buf)
+  if not nx.bo[buf].expandtab then
+    return "\t"
   end
-  -- map[off] = the output byte offset of input byte offset `off` (0-based).
-  local map, out, outlen, prev_nl = {}, {}, 0, false
-  for i = 1, #text do
-    if prev_nl then
-      out[#out + 1] = indent
-      outlen = outlen + #indent
+  local width = nx.bo[buf].shiftwidth or 0
+  if width == 0 then
+    width = nx.bo[buf].tabstop or 8
+  end
+  if width <= 0 then
+    width = 8
+  end
+  return string.rep(" ", width)
+end
+
+-- Fit a laid-out body to the buffer it lands in, remapping every tabstop occurrence's
+-- byte span onto the new offsets. Two adjustments, in one pass:
+--
+--   * each line's own leading TABS become `unit` (the buffer's indent unit), so a
+--     tab-indented collection body doesn't punch hard tabs into a spaces buffer;
+--   * every line after the first is prefixed with `prefix` — the anchor line's leading
+--     whitespace — so a multi-line body keeps its shape inside an indented block.
+--
+-- Offsets are 0-based bytes. Returns the fitted text and the remapped stops.
+local function fit_to_buffer(text, stops, prefix, unit)
+  if prefix == "" and unit == "\t" then
+    return text, stops -- nothing to add, nothing to convert
+  end
+
+  -- One record per line: where it starts (in and out), how long its leading whitespace
+  -- run is (in and out), and the run itself — everything `remap` needs.
+  local out, lines, outlen, pos = {}, {}, 0, 1
+  while true do
+    local nl = text:find("\n", pos, true)
+    local line = nl and text:sub(pos, nl - 1) or text:sub(pos)
+    local lead = line:match("^[ \t]*")
+    local body_lead = (lead:gsub("\t", unit))
+    -- The first line continues the anchor line, so it takes no prefix — and neither
+    -- does the empty tail a body-ending newline leaves behind: there is no content to
+    -- indent there, only trailing whitespace to avoid.
+    local line_prefix = (#lines == 0 or (nl == nil and line == "")) and "" or prefix
+    lines[#lines + 1] = {
+      in_start = pos - 1,
+      out_start = outlen,
+      lead = lead,
+      lead_in = #lead,
+      lead_out = #line_prefix + #body_lead,
+      prefix_out = #line_prefix,
+    }
+    local rest = line:sub(#lead + 1)
+    out[#out + 1] = line_prefix
+    out[#out + 1] = body_lead
+    out[#out + 1] = rest
+    outlen = outlen + #line_prefix + #body_lead + #rest
+    if not nl then
+      break
     end
-    map[i - 1] = outlen
-    out[#out + 1] = text:sub(i, i)
-    outlen = outlen + 1
-    prev_nl = text:byte(i) == 10
+    out[#out + 1] = "\n"
+    outlen, pos = outlen + 1, nl + 1
   end
-  map[#text] = outlen
-  local newstops = {}
+
+  local function remap(off)
+    local lo, hi = 1, #lines
+    while lo < hi do
+      local mid = (lo + hi + 1) // 2
+      if lines[mid].in_start <= off then
+        lo = mid
+      else
+        hi = mid - 1
+      end
+    end
+    local l = lines[lo]
+    local within = off - l.in_start
+    if within >= l.lead_in then
+      return l.out_start + l.lead_out + (within - l.lead_in)
+    end
+    -- Inside the line's own indentation: expand only the leading bytes before `off`.
+    local w = l.out_start + l.prefix_out
+    for k = 1, within do
+      w = w + (l.lead:byte(k) == 9 and #unit or 1)
+    end
+    return w
+  end
+
+  local moved = {}
   for idx, occs in pairs(stops) do
     local no = { choices = occs.choices }
     for _, occ in ipairs(occs) do
-      local n = { map[occ[1]], map[occ[2]] }
+      local n = { remap(occ[1]), remap(occ[2]) }
       n.transform = occ.transform
       no[#no + 1] = n
     end
-    newstops[idx] = no
+    moved[idx] = no
   end
-  return table.concat(out), newstops
+  return table.concat(out), moved
 end
 
--- The current (row, col, end_row, end_col) of extmark `id`, or nil if it's gone.
-local function mark_range(buf, id)
-  local ms = nx.buf.extmarks(buf, NS, 0, -1, { details = true })
-  for _, m in ipairs(ms) do
-    if m[1] == id then
-      local d = m[4] or {}
-      return m[2], m[3], d.end_row or m[2], d.end_col or m[3]
-    end
+-- Every session extmark's current range, as `{ [id] = { row, col, end_row, end_col } }`.
+-- ONE `nx.buf.extmarks` call: that accessor materializes and sorts the whole namespace
+-- each time it is called, and a sync pass needs every occurrence — looking each mark up
+-- on its own made a keystroke quadratic in the snippet's occurrence count.
+local function mark_ranges(buf)
+  local out = {}
+  for _, m in ipairs(nx.buf.extmarks(buf, NS, 0, -1, { details = true })) do
+    local d = m[4] or {}
+    out[m[1]] = { m[2], m[3], d.end_row or m[2], d.end_col or m[3] }
   end
-  return nil
+  return out
 end
 
--- The text currently spanned by extmark `id` (joined with `\n`), or nil.
-local function mark_text(buf, id)
-  local r, c, er, ec = mark_range(buf, id)
-  if not r then
-    return nil
-  end
-  return table.concat(nx.buf.text(buf, r, c, er, ec), "\n")
-end
-
--- Re-sync every mirror of the ACTIVE tabstop to its primary occurrence's text. Called
--- after each edit. Diff-guarded, so it converges: once mirrors equal the primary the
--- next edit finds nothing to do (no infinite re-entry through on_bytes).
--- Re-sync every mirror of the ACTIVE tabstop to its primary occurrence's text. Reads
--- a consistent post-edit snapshot (it runs on its own tick, scheduled by
--- `schedule_sync`), and only rewrites a mirror whose text differs — so it converges:
--- the mirror edits it makes schedule one more pass that finds nothing to do.
+-- Re-sync every mirror of the ACTIVE tabstop to its primary occurrence's text. Reads a
+-- consistent post-edit snapshot (it runs on its own tick, scheduled by `schedule_sync`),
+-- and only rewrites a mirror whose text differs — so it converges: the mirror edits it
+-- makes schedule one more pass that finds nothing to do.
+--
+-- The mirror edits are applied LAST-FIRST. `nx.buf.set_text` queues its edit to be
+-- applied after this chunk, so a mirror rewritten earlier shifts every position to its
+-- right; walking right-to-left keeps each remaining (chunk-start) coordinate valid. Left
+-- to right, a snippet with two or more mirrors (`$1 = $1 + $1`) spliced the second one
+-- at a stale column and corrupted the line.
 local function do_sync()
   if not S then
     return
@@ -143,24 +219,36 @@ local function do_sync()
   if not stop or #stop.marks < 2 then
     return
   end
+  local ranges = mark_ranges(S.buf)
   local pm = primary_mark(stop)
-  local text = mark_text(S.buf, pm.id)
-  if not text then
+  local pr = ranges[pm.id]
+  if not pr then
     return
   end
+  local text = table.concat(nx.buf.text(S.buf, pr[1], pr[2], pr[3], pr[4]), "\n")
+
+  local pending = {}
   for _, m in ipairs(stop.marks) do
-    if m ~= pm then
-      local r, c, er, ec = mark_range(S.buf, m.id)
-      if r then
-        -- A transformed occurrence renders the transform of the primary's text; a plain
-        -- mirror copies it verbatim.
-        local want = m.transform and transform.apply(text, m.transform) or text
-        local cur = table.concat(nx.buf.text(S.buf, r, c, er, ec), "\n")
-        if cur ~= want then
-          nx.buf.set_text(S.buf, r, c, er, ec, split_lines(want))
-        end
+    local r = m ~= pm and ranges[m.id]
+    if r then
+      -- A transformed occurrence renders the transform of the primary's text; a plain
+      -- mirror copies it verbatim.
+      local want = m.transform and transform.apply(text, m.transform) or text
+      local cur = table.concat(nx.buf.text(S.buf, r[1], r[2], r[3], r[4]), "\n")
+      if cur ~= want then
+        pending[#pending + 1] = { r = r, want = want }
       end
     end
+  end
+  table.sort(pending, function(a, b)
+    if a.r[1] ~= b.r[1] then
+      return a.r[1] > b.r[1]
+    end
+    return a.r[2] > b.r[2]
+  end)
+  for _, edit in ipairs(pending) do
+    local r = edit.r
+    nx.buf.set_text(S.buf, r[1], r[2], r[3], r[4], split_lines(edit.want))
   end
 end
 
@@ -195,8 +283,20 @@ function M.finish()
   if S.detach then
     S.detach()
   end
-  nx.buf.clear_namespace(S.buf, NS, 0, -1)
+  if nx.buf.is_valid(S.buf) then
+    nx.buf.clear_namespace(S.buf, NS, 0, -1)
+  end
   S = nil
+end
+
+-- Land on a CHOICE stop (`${N|a,b,c|}`): open a NON-GRABBING dropdown of the
+-- alternatives at the cursor (`nx.complete.choice`, the completion-popup widget — not
+-- the modal `nx.ui.select`) so it reads as "pick one" while input keeps flowing. The
+-- popup owns the pick: accepting a row splices it over the tabstop range natively, which
+-- fires our `on_bytes` → the mirror sync. Nothing to do on this side but open it over
+-- the primary occurrence's current range. Cancelling / typing keeps the current value.
+local function open_choice(stop, range)
+  nx.complete.choice(stop.choices, { range = range })
 end
 
 -- Land on tab-order position `pos`'s primary occurrence. A placeholder with a default
@@ -204,20 +304,8 @@ end
 -- `nx.win.select_range` with `on_escape = "insert"` so a bare <Esc> keeps the default
 -- and stays editing); an empty tabstop (`$1` / `$0`) has a zero-width range, which
 -- `select_range` degrades to caret + Insert — so one call covers both. Ends the session
--- when `pos` runs past the last stop.
--- Land on a CHOICE stop (`${N|a,b,c|}`): open a NON-GRABBING dropdown of the
--- alternatives at the cursor (`nx.complete.choice`, the completion-popup widget — not
--- the modal `nx.ui.select`) so it reads as "pick one" while input keeps flowing. The
--- popup owns the pick: accepting a row splices it over the tabstop range natively, which
--- fires our `on_bytes` → the mirror sync. Nothing to do on this side but open it over
--- the primary occurrence's current range. Cancelling / typing keeps the current value.
-local function open_choice(stop)
-  local r, c, er, ec = mark_range(S.buf, primary_mark(stop).id)
-  if r then
-    nx.complete.choice(stop.choices, { range = { r, c, er, ec } })
-  end
-end
-
+-- when `pos` runs past the last stop, or when the stop's anchor is gone (its line was
+-- deleted) — there is nothing left to land on.
 local function goto_pos(pos)
   if pos > #S.order then
     M.finish()
@@ -231,16 +319,17 @@ local function goto_pos(pos)
   end
   S.pos = pos
   local stop = S.stops[S.order[pos]]
-  local r, c, er, ec = mark_range(S.buf, primary_mark(stop).id)
+  local r = mark_ranges(S.buf)[primary_mark(stop).id]
   if not r then
+    M.finish()
     return
   end
   if stop.choices and #stop.choices > 0 then
     -- A choice stop offers a dropdown; the default value is already in the buffer.
-    open_choice(stop)
+    open_choice(stop, r)
   else
     -- 0-based rows/cols (select_range's convention); an empty span → caret + Insert.
-    nx.win.select_range(0, r, c, er, ec, { on_escape = "insert" })
+    nx.win.select_range(0, r[1], r[2], r[3], r[4], { on_escape = "insert" })
   end
   -- $0 (the final stop) is terminal: landing on it and jumping again ends the session.
 end
@@ -248,8 +337,17 @@ end
 -- Jump to the next (`dir == 1`) / previous (`dir == -1`) tabstop. Returns true if a
 -- session was live (so a keymap can decide whether to fall through). Ending on the
 -- last stop is still a successful jump.
+--
+-- Leaving the snippet's buffer ends the session rather than jumping: the anchors are
+-- the OTHER buffer's, while `select_range` / `nx.complete.choice` act on the current
+-- window — so jumping from elsewhere would drive the caret to a foreign coordinate and
+-- edit an unrelated buffer.
 function M.jump(dir)
   if not S then
+    return false
+  end
+  if nx.buf.current() ~= S.buf then
+    M.finish()
     return false
   end
   goto_pos(S.pos + dir)
@@ -267,12 +365,12 @@ function M.expand(buf, sr, sc, er, ec, body, ctx)
     return variables.resolve(name, ctx)
   end)
 
-  -- Re-indent continuation lines to the anchor line's leading whitespace, so a
-  -- multi-line body expanded inside an indented block keeps its shape (the trigger's
-  -- own indent is the text before it on the line).
+  -- Fit the body to this buffer: continuation lines pick up the anchor line's leading
+  -- whitespace (the text before the trigger on its line), and the body's own tab
+  -- indentation becomes whatever this buffer indents with.
   local before = table.concat(nx.buf.text(buf, sr, 0, sr, sc), "")
   local indent = before:match("^[ \t]*") or ""
-  text, spans = reindent(text, spans, indent)
+  text, spans = fit_to_buffer(text, spans, indent, indent_unit(buf))
 
   -- Splice the expansion over the trigger range (P1).
   nx.buf.set_text(buf, sr, sc, er, ec, split_lines(text))
@@ -292,10 +390,11 @@ function M.expand(buf, sr, sc, er, ec, body, ctx)
   -- The edit is queued; on the next tick the text is in the buffer, so anchor the
   -- growing tabstop extmarks (P2) at the now-materialized positions, jump to the first
   -- (P5), and start listening for edits to keep mirrors in sync (P3).
+  local abs = pos_mapper(text, sr, sc)
   nx.on_next_tick(function()
     if #order == 0 then
       -- No tabstops: park the caret at the end of the insertion and stop.
-      local r, c = abs_pos(text, #text, sr, sc)
+      local r, c = abs(#text)
       nx.win.set_cursor(0, r + 1, c)
       return
     end
@@ -303,8 +402,8 @@ function M.expand(buf, sr, sc, er, ec, body, ctx)
     for idx, occs in pairs(spans) do
       local marks = {}
       for _, span in ipairs(occs) do
-        local r, c = abs_pos(text, span[1], sr, sc)
-        local er2, ec2 = abs_pos(text, span[2], sr, sc)
+        local r, c = abs(span[1])
+        local er2, ec2 = abs(span[2])
         local id = nx.buf.set_extmark(buf, NS, r, c, {
           end_row = er2,
           end_col = ec2,
