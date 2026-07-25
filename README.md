@@ -46,8 +46,8 @@ renders both on GitHub and in the editor:
 
 ## Coverage
 
-Against the full friendly-snippets collection (9,422 snippets across 127 filetypes):
-all 9,422 parse, and 9,420 (99.98%) lay out and expand. The 2 that don't use a regex
+Against the full friendly-snippets collection (9,213 snippets across 128 filetypes):
+all 9,213 parse, and 9,211 (99.98%) lay out and expand. The 2 that don't use a regex
 lookbehind (`(?<=…)`), which nxvim's regex engine can't compile — those fail **loud**
 rather than mis-expanding.
 

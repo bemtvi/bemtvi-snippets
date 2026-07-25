@@ -115,10 +115,20 @@ A collection is the standard VSCode layout: a `package.json` whose
 `contributes.snippets` lists `{ language, path }` entries, plus per-language
 JSON files mapping a name to `{ prefix, body, description }`. Both `prefix` and
 `body` may be a string or a list of strings; a list `prefix` fans out into one
-snippet per trigger. A `package.json` on the runtimepath that is not a snippet
-collection is skipped silently; a snippet file that is unreadable or malformed
-is reported with `nx.notify` and skipped, so one bad file does not sink a whole
-language.
+snippet per trigger.
+
+Each VSCode language id becomes the nxvim filetype of the same name, except
+where the two differ — `shellscript` is nxvim's `bash`, `csharp` is
+`c_sharp`, `typescriptreact` is `tsx`, and `javascriptreact` folds into
+`javascript` (nxvim has no separate JSX filetype). A collection reachable twice
+— on the runtimepath AND passed to `add_collection` — is swept once, not
+offered twice.
+
+Nothing in a collection is allowed to break the sweep: a `package.json` that is
+not a snippet collection, is unreadable, or is not valid JSON is skipped
+silently, and a snippet file that is unreadable or malformed is reported with
+`nx.notify` and skipped — so one bad file does not sink a whole language, and
+one bad manifest does not sink discovery.
 
 
 ==============================================================================
@@ -163,19 +173,39 @@ expand.
 
 VARIABLES                              *nxvim-snippets-body-grammar-variables*
 
-Resolved at expand time, from the buffer and the clock:
+Resolved at expand time, from the buffer, its options, and the clock:
 
 >
     CURRENT_YEAR  CURRENT_YEAR_SHORT  CURRENT_MONTH  CURRENT_DATE
     CURRENT_HOUR  CURRENT_MINUTE  CURRENT_SECOND  CURRENT_SECONDS_UNIX
     CURRENT_DAY_NAME  CURRENT_DAY_NAME_SHORT
     CURRENT_MONTH_NAME  CURRENT_MONTH_NAME_SHORT
+    CURRENT_TIMEZONE_OFFSET
     TM_FILENAME  TM_FILENAME_BASE  TM_DIRECTORY  TM_FILEPATH
     RELATIVE_FILEPATH
     TM_LINE_NUMBER  TM_LINE_INDEX  TM_CURRENT_LINE  TM_CURRENT_WORD
     TM_SELECTED_TEXT  CLIPBOARD  WORKSPACE_NAME  WORKSPACE_FOLDER
+    LINE_COMMENT  BLOCK_COMMENT_START  BLOCK_COMMENT_END
     UUID  RANDOM  RANDOM_HEX
 <
+
+A few are worth spelling out:
+
+- `WORKSPACE_FOLDER` is the workspace root when the session
+    has one (`nx.workspace.dir()`), else the editor's working
+    directory; `WORKSPACE_NAME` is that directory's base name.
+- `RELATIVE_FILEPATH` is the file relative to that same root
+    (`TM_FILEPATH` is the absolute one). A file outside the root
+    keeps its absolute path, as in VSCode.
+- `TM_CURRENT_WORD` is the identifier the caret sits in — in
+    Insert mode, the word being typed.
+- `LINE_COMMENT` / `BLOCK_COMMENT_START` / `BLOCK_COMMENT_END`
+    come from the buffer's `'commentstring'`, so they follow
+    whatever the filetype (or your own `:setlocal`) says. A line
+    template (`-- %s`) defines only `LINE_COMMENT`; a wrapping
+    one (`/* %s */`) defines only the block pair.
+- `RANDOM` (six digits) and `RANDOM_HEX` (six hex digits) are
+    genuinely random per occurrence.
 
 An unknown variable falls back to its `${VAR:default}` (or empty), matching
 VSCode.
@@ -199,11 +229,13 @@ Expanding starts a tabstop session — one at a time, like the native engine.
 - Mirrors re-sync after each edit, on the next tick, so rapid keystrokes
     coalesce into one pass. A transformed occurrence renders the transform
     of the primary's text instead of a verbatim copy.
-- A multi-line body is re-indented: every line after the first is
-    prefixed with the anchor line's leading whitespace.
-- Jumping past the last stop ends the session, as does `snip.abort()` or
-    a wholesale buffer reload (undo/redo, `:e`), where the anchors are
-    moot.
+- A body is fitted to the buffer it lands in: every line after the first
+    is prefixed with the anchor line's leading whitespace, and the body's
+    own leading tabs (every VSCode collection is tab-indented) become the
+    buffer's indent unit — `'shiftwidth'` spaces under `'expandtab'`.
+- Jumping past the last stop ends the session, as does `snip.abort()`,
+    leaving the snippet's buffer, or a wholesale buffer reload (undo/redo,
+    `:e`), where the anchors are moot.
 
 
 ==============================================================================
@@ -236,7 +268,9 @@ auto-join and control the source list yourself.
 A snippet row reads `Snippet` in the right-aligned kind column, and selecting
 it previews the expansion in the docs float — the body fenced as a code block
 tagged with the buffer's filetype, led by the snippet's `description` when
-it has one.
+it has one. The preview is built for the row you actually land on (the
+source's `resolve` callback), not for every candidate on every keystroke, so
+a large collection costs nothing extra while you type.
 
 
 ==============================================================================
@@ -247,7 +281,10 @@ it has one.
 <
 
 `snip.setup(opts)` — (re)configure: register the completion source (it
-auto-joins `nx.complete`) and install the jump keymaps.
+auto-joins `nx.complete`) and install the jump keymaps. Calling it again is a
+full reconfigure — discovery re-runs from scratch (replacing what it had
+read, never duplicating it), while snippets you registered with `snip.add` are
+kept.
 
 >lua
     require("nxvim-snippets").setup({
@@ -275,8 +312,9 @@ The rest of the surface:
     buffer (VSCode's global scope). Fails loud on a bad entry shape.
 - `snip.add_collection(dirs)` — add a VSCode collection root (a dir, or
     a list of them) to the lazy auto-discovery, for a collection that is
-    not on the runtimepath. Call it at config time, before completions
-    start, so already-loaded filetypes see it too.
+    not on the runtimepath. Safe to call at any time: it invalidates the
+    discovery caches, so filetypes already loaded pick the new root up on
+    their next completion.
 - `snip.expand(body)` — expand a body at the cursor right now, starting
     a session. The manual counterpart of accepting a completion row.
 - `snip.jump_next()` / `snip.jump_prev()` — jump tabstops. Each returns
@@ -285,7 +323,8 @@ The rest of the surface:
 - `snip.abort()` — end the active session.
 - `snip.active()` — whether a session is live.
 - `snip.get(ft)` — the snippets registered for a filetype, plus the
-    global `"all"` bucket.
+    global `"all"` bucket. The list is memoized and shared — read it,
+    don't mutate it.
 - `snip.parse(body)` — parse a body into its AST without expanding (for
     tests and tooling). Raises on bad input.
 
@@ -329,8 +368,8 @@ The module map:
 ==============================================================================
 9. Coverage                                          *nxvim-snippets-coverage*
 
-Against the full friendly-snippets collection (9,422 snippets across 127
-filetypes): all 9,422 parse, and 9,420 (99.98%) lay out and expand. The 2 that
+Against the full friendly-snippets collection (9,213 snippets across 128
+filetypes): all 9,213 parse, and 9,211 (99.98%) lay out and expand. The 2 that
 do not use a regex lookbehind (`(?<=…)`) in a transform, which nxvim's
 regex engine (the Rust `regex` crate) cannot compile — those fail LOUD with a
 clear error rather than mis-expanding.
