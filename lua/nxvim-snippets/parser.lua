@@ -69,6 +69,28 @@ local transform = require("nxvim-snippets.transform")
 
 local parse_nodes -- forward declaration (recursive with the braced parsers)
 
+-- Raise the one RECOVERABLE parse failure: a `${...}` that is closed but isn't a legal
+-- construct (`${ami-name}` — a hyphen is not a variable char). VSCode renders such a
+-- group literally, so `parse_dollar` backtracks when it sees this. It is raised as a
+-- TABLE so that test is an identity check on the sentinel rather than a substring match
+-- on a message (which would silently start swallowing real errors if one were ever
+-- worded with the word "malformed"). Every other failure is a plain string error and
+-- stays loud.
+local MALFORMED = {}
+local MALFORMED_MT = {
+  -- Only `parse_dollar` ever sees one of these, but if a future caller lets one escape
+  -- it must still read as its message, not as `table: 0x…`.
+  __tostring = function(err)
+    return err.message
+  end,
+}
+local function malformed(msg)
+  error(setmetatable({ [MALFORMED] = true, message = msg }, MALFORMED_MT), 0)
+end
+local function is_malformed(err)
+  return type(err) == "table" and err[MALFORMED] == true
+end
+
 -- ----- transform parsing (${N/regex/format/options}) ------------------------
 
 -- Read the `regex` part (positioned just after the opening `/`), up to the unescaped
@@ -140,6 +162,11 @@ end
 --   ${N:?if:else} -> conditional
 local function parse_format_group(r)
   local index = read_int(r)
+  if index == nil then
+    -- `${:/upcase}` names no capture group: rendering it would quietly produce
+    -- nothing, so refuse it instead of mis-expanding.
+    error("nxvim-snippets: transform format group `${...}` needs a capture number")
+  end
   local b = advance(r) -- } or :
   if b == 125 then
     return { kind = "group", index = index }
@@ -294,7 +321,7 @@ local function parse_braced(r)
     elseif nb == 47 then -- /  transform
       return { kind = "tabstop", index = index, children = {}, transform = parse_transform(r) }
     else
-      error("nxvim-snippets: malformed `${" .. index .. "...}` (unexpected byte)")
+      malformed("nxvim-snippets: malformed `${" .. index .. "...}` (unexpected byte)")
     end
   elseif is_name_start(b) then
     local name = read_name(r)
@@ -307,10 +334,10 @@ local function parse_braced(r)
     elseif nb == 47 then -- /  variable transform
       return { kind = "var", name = name, children = {}, transform = parse_transform(r) }
     else
-      error("nxvim-snippets: malformed `${" .. name .. "...}` (unexpected byte)")
+      malformed("nxvim-snippets: malformed `${" .. name .. "...}` (unexpected byte)")
     end
   end
-  error("nxvim-snippets: malformed `${...}` (expected a tabstop number or variable name)")
+  malformed("nxvim-snippets: malformed `${...}` (expected a tabstop number or variable name)")
 end
 
 -- Parse a `$...` construct positioned just past the `$`. Returns one node, or a text
@@ -334,7 +361,7 @@ local function parse_dollar(r)
     -- Only a CLOSED-but-malformed group (a bad name char, e.g. `${ami-name}`) falls back
     -- to literal, matching VSCode. An unterminated `${...` or a refused transform stays
     -- loud.
-    if not tostring(node):match("malformed") then
+    if not is_malformed(node) then
       error(node, 0)
     end
     r.i = save -- the `$` is literal; reparse from the `{`

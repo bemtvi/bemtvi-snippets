@@ -93,4 +93,14 @@ nx.test.describe("nxvim-snippets.parser refusals", function()
       end)
       .to_error()
   end)
+
+  nx.test.it("rejects a transform format group with no capture index", function()
+    -- `${:/upcase}` names no group — rendering it would silently produce nothing, so
+    -- it fails loud instead.
+    nx.test
+      .expect(function()
+        parser.parse("${1/(.*)/${:/upcase}/}")
+      end)
+      .to_error()
+  end)
 end)

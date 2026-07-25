@@ -76,6 +76,29 @@ local function render_format(format, caps)
   return table.concat(out)
 end
 
+-- Compiled-regex cache. `nx.regex` compiles in Rust on every call, and a TABSTOP
+-- transform is re-applied on every keystroke as its source changes — so the same
+-- handful of patterns would be recompiled continuously while you type. Keyed by
+-- pattern + the flags that change the compile. Bounded: a snippet body's patterns are
+-- a tiny fixed set, but a long session across many collections shouldn't grow this
+-- without limit, so it resets wholesale once it gets large (cheap: the live snippet's
+-- patterns recompile once and repopulate it).
+local CACHE_MAX = 256
+local cache, cache_n = {}, 0
+
+local function compile(pattern, ignorecase)
+  local key = (ignorecase and "i\0" or "\0") .. pattern
+  local re = cache[key]
+  if re == nil then
+    re = nx.regex(pattern, { engine = "pcre", ignorecase = ignorecase })
+    if cache_n >= CACHE_MAX then
+      cache, cache_n = {}, 0
+    end
+    cache[key], cache_n = re, cache_n + 1
+  end
+  return re
+end
+
 -- apply(value, spec) -> string. `spec = { regex, format, options }`. Runs `regex` over
 -- `value` (globally when the options contain `g`, case-insensitively for `i`) and
 -- replaces each match with the rendered `format`; unmatched spans pass through. Raises
@@ -83,7 +106,7 @@ end
 function M.apply(value, spec)
   value = value or ""
   local options = spec.options or ""
-  local re = nx.regex(spec.regex, { engine = "pcre", ignorecase = options:find("i") ~= nil })
+  local re = compile(spec.regex, options:find("i") ~= nil)
   local global = options:find("g") ~= nil
 
   local out, pos, n = {}, 1, #value
