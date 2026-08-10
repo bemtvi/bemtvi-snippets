@@ -32,7 +32,9 @@ nx.plugins({
 ```
 
 Type a trigger, accept the completion row with `<C-y>`, and you land in the snippet
-on the first tabstop. `<C-j>` / `<C-k>` jump to the next / previous one.
+on the first tabstop. `<C-j>` / `<C-k>` — or `<C-l>` / `<C-h>` — jump to the next /
+previous one. (`<C-h>` needs a terminal with the kitty keyboard protocol; elsewhere it
+is indistinguishable from `<BS>`, so the plugin leaves it unmapped.)
 
 ## Documentation
 
@@ -58,7 +60,8 @@ NXVIM_CONFIG=examples nxvim examples/sample.lua
 ```
 
 (run from a checkout of this repo). In insert mode type `lf`, `req`, `log`, or
-`today`, accept the row with `<C-y>`, and jump with `<C-j>` / `<C-k>`.
+`today`, accept the row with `<C-y>`, and jump with `<C-j>` / `<C-k>` (or `<C-l>` /
+`<C-h>`).
 
 ## Development
 

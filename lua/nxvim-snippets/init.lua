@@ -46,10 +46,18 @@ M._discovered = {}
 
 M.config = {
   -- Insert-mode keys to jump between tabstops. Installed by `setup`; a no-op when no
-  -- session is active (so they're effectively reserved while the plugin is on). Set
-  -- either to `false` in `setup{}` to not install it and map `M.jump_next/prev` yourself.
-  jump_next = "<C-j>",
-  jump_prev = "<C-k>",
+  -- session is active (so they're effectively reserved while the plugin is on). Either
+  -- may be a single key or a LIST of keys, all of which get the same jump: the defaults
+  -- bind both the vertical pair (`<C-j>`/`<C-k>`, matching the completion menu's
+  -- next/prev) and the horizontal one (`<C-l>`/`<C-h>`, reading as forward/back through
+  -- the tabstops). Set either to `false` in `setup{}` to not install it and map
+  -- `M.jump_next/prev` yourself.
+  --
+  -- `<C-h>` is only installed on a terminal that can actually deliver it (see
+  -- `PROTOCOL_ONLY` below) — elsewhere it IS `<BS>`, and jumping instead of deleting
+  -- would be worse than not binding it at all. The rest of the defaults always apply.
+  jump_next = { "<C-j>", "<C-l>" },
+  jump_prev = { "<C-k>", "<C-h>" },
   -- The completion source's own prefix gate: snippets show from this many typed chars.
   -- Kept low (2) so short triggers like `lf` open the menu. The source auto-joins the
   -- `nx.complete` engine with this gate — no need to list it in `nx.complete.setup`.
@@ -252,8 +260,71 @@ function M.abort()
   session.finish()
 end
 
+-- The four chords a terminal without the kitty keyboard protocol cannot deliver: it
+-- sends the named key's byte instead, and nxvim folds the mapping's LHS the same way,
+-- so mapping one of these on a legacy terminal really maps `<BS>` / `<Tab>` / `<CR>` /
+-- `<Esc>`. Keyed by the canonical spellings `nx.keymap.set` accepts, lowercased.
+local PROTOCOL_ONLY = {
+  ["<c-h>"] = true,
+  ["<c-i>"] = true,
+  ["<c-m>"] = true,
+  ["<c-[>"] = true,
+}
+
+-- Whether `key` can be installed right now: either it is an ordinary chord, or the
+-- attached client speaks the keyboard protocol and can tell it from its named twin.
+local function key_deliverable(key)
+  if not PROTOCOL_ONLY[key:lower()] then
+    return true
+  end
+  return nx.ui.caps().keyboard_protocol
+end
+
+-- The keys this plugin has actually mapped, so a protocol-only chord can be taken back
+-- when the client changes — and only ever one of OUR maps, never a key the user bound.
+local installed = {}
+
+-- Install one jump action on `keys`, which is `false` (skip), a single key, or a list of
+-- keys that all perform the same jump. A protocol-only chord the current client can't
+-- deliver is skipped — and unmapped again if an earlier client could, since `setup`
+-- re-runs this on every `UIEnter`: attaching from a better terminal (or a daemon re-dial
+-- from a worse one) moves the key in the right direction either way.
+local function map_jump(keys, action, desc)
+  if not keys then
+    return
+  end
+  for _, key in ipairs(type(keys) == "table" and keys or { keys }) do
+    if key_deliverable(key) then
+      nx.keymap.set({ "i", "s" }, key, function()
+        action()
+      end, { desc = desc })
+      installed[key] = true
+    elseif installed[key] then
+      nx.keymap.del({ "i", "s" }, key)
+      installed[key] = nil
+    end
+  end
+end
+
+-- Install both jump directions for the config in force. Idempotent — re-running
+-- re-sets the same LHSs — so it is safe to repeat per `UIEnter`.
+local function install_jump_keys()
+  -- Map the jump keys in BOTH Insert and Select mode: a placeholder with a default is
+  -- landed on in Select mode (so typing replaces it), and the jump keys must work there
+  -- too — otherwise <C-j> on a selected placeholder would fall through to Normal.
+  map_jump(M.config.jump_next, M.jump_next, "nxvim-snippets: jump to next tabstop")
+  map_jump(M.config.jump_prev, M.jump_prev, "nxvim-snippets: jump to previous tabstop")
+end
+
+-- `UIEnter` is armed once per session, not once per `setup` — the handler reads
+-- `M.config` when it runs, so a later reconfigure needs no second subscription.
+M._uienter_armed = M._uienter_armed or false
+
 -- setup(opts) — (re)configure and register the completion source + jump keymaps.
--- `opts.jump_next` / `opts.jump_prev` override the jump keys (or `false` to skip).
+-- `opts.jump_next` / `opts.jump_prev` override the jump keys — one key, a list of keys
+-- that all jump the same way, or `false` to install none and map `M.jump_next/prev`
+-- yourself. A key a legacy terminal can't deliver (`<C-h>` and friends) is installed
+-- only once a client that can attaches; see `PROTOCOL_ONLY`.
 function M.setup(opts)
   opts = opts or {}
   for k, v in pairs(opts) do
@@ -276,18 +347,14 @@ function M.setup(opts)
     end
   )
 
-  -- Map the jump keys in BOTH Insert and Select mode: a placeholder with a default is
-  -- landed on in Select mode (so typing replaces it), and the jump keys must work there
-  -- too — otherwise <C-j> on a selected placeholder would fall through to Normal.
-  if M.config.jump_next then
-    nx.keymap.set({ "i", "s" }, M.config.jump_next, function()
-      M.jump_next()
-    end, { desc = "nxvim-snippets: jump to next tabstop" })
-  end
-  if M.config.jump_prev then
-    nx.keymap.set({ "i", "s" }, M.config.jump_prev, function()
-      M.jump_prev()
-    end, { desc = "nxvim-snippets: jump to previous tabstop" })
+  install_jump_keys()
+  -- The config (and this `setup`) runs before any client attaches, so a protocol-only
+  -- chord like `<C-h>` can't be judged yet: re-run once the client is known.
+  if not M._uienter_armed then
+    M._uienter_armed = true
+    nx.on("UIEnter", {}, function()
+      install_jump_keys()
+    end)
   end
 end
 

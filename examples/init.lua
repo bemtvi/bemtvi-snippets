@@ -15,7 +15,8 @@ nx.plugins({
     config = function()
       local snip = require("nxvim-snippets")
 
-      -- 1. Enable the engine + jump keys (<C-j> next, <C-k> previous by default).
+      -- 1. Enable the engine + jump keys (<C-j>/<C-l> next, <C-k>/<C-h> previous by
+      --    default; <C-h> only on a kitty-keyboard-protocol terminal).
       --    `snip.setup` registers the snippet source, which AUTO-JOINS your completion
       --    engine — you never list it (registering a source activates it).
       snip.setup({})

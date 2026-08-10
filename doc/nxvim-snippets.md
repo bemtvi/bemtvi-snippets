@@ -62,7 +62,8 @@ snip.add_collection("/path/to/snippets-collection")
 ```
 
 Type a trigger, accept the completion row with `<C-y>`, and you land in the snippet on the first
-tabstop. `<C-j>` / `<C-k>` jump to the next / previous tabstop (configurable — see `setup()`).
+tabstop. `<C-j>` / `<C-k>` — or `<C-l>` / `<C-h>` — jump to the next / previous tabstop
+(configurable — see `setup()`).
 
 # Collections
 
@@ -244,10 +245,11 @@ duplicating it), while snippets you registered with `snip.add` are kept.
 ```lua
 require("nxvim-snippets").setup({
   -- The jump keys, mapped in BOTH Insert and Select mode (a selected
-  -- placeholder must be jumpable too). `false` skips installing one, so
-  -- you can map `snip.jump_next` / `snip.jump_prev` yourself.
-  jump_next = "<C-j>",
-  jump_prev = "<C-k>",
+  -- placeholder must be jumpable too). Either may be one key or a LIST
+  -- of keys that all jump the same way. `false` skips installing one,
+  -- so you can map `snip.jump_next` / `snip.jump_prev` yourself.
+  jump_next = { "<C-j>", "<C-l>" },
+  jump_prev = { "<C-k>", "<C-h>" },
 
   -- The source's own prefix gate: how many typed chars before
   -- snippets show.
@@ -259,6 +261,19 @@ require("nxvim-snippets").setup({
   discover_runtimepath = true,
 })
 ```
+
+### `<C-h>` and the keyboard protocol
+
+`<C-h>` is in the defaults but is installed **only on a terminal that can actually
+send it**. Without the kitty keyboard protocol a terminal transmits `<C-h>` as the
+`<BS>` byte, and nxvim folds both the key and a mapping's LHS the same way — so
+mapping `<C-h>` there really maps Backspace, and typing a correction inside a tabstop
+would jump instead of deleting. The plugin checks `nx.ui.caps().keyboard_protocol` on
+`UIEnter` and skips the key when the answer is no; `<C-j>` / `<C-k>` / `<C-l>` are
+unaffected and always installed. The same gate applies to `<C-i>`, `<C-m>` and `<C-[>`
+if you configure one of those. Enable the protocol in your terminal (kitty, foot,
+WezTerm, Ghostty, recent Alacritty; under tmux, `set -g extended-keys on`) and `<C-h>`
+starts working on the next attach.
 
 The rest of the surface:
 
@@ -331,7 +346,7 @@ NXVIM_CONFIG=examples nxvim examples/sample.lua
 ```
 
 (run from a checkout of this repo). In insert mode type `lf`, `req`, `log`, or `today`, accept the
-row with `<C-y>`, and jump with `<C-j>` / `<C-k>`.
+row with `<C-y>`, and jump with `<C-j>` / `<C-k>` (or `<C-l>` / `<C-h>`).
 
 # Tests
 
