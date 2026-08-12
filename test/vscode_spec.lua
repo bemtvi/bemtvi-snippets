@@ -2,13 +2,13 @@
 -- `load_paths` reads the indexed files and normalizes them (a string OR list `prefix` and
 -- `body`, per VSCode) into `{ trigger, body, description }` entries.
 
-local vscode = require("nxvim-snippets.vscode")
+local vscode = require("bemtvi-snippets.vscode")
 
 -- Write a miniature friendly-snippets collection into `dir` and return it.
 local function write_collection(dir)
-  nx.await(nx.fs.write(
+  btv.await(btv.fs.write(
     dir .. "/package.json",
-    nx.json.encode({
+    btv.json.encode({
       contributes = {
         snippets = {
           { language = { "lua" }, path = "./lua.json" },
@@ -17,9 +17,9 @@ local function write_collection(dir)
       },
     })
   ))
-  nx.await(nx.fs.write(
+  btv.await(btv.fs.write(
     dir .. "/lua.json",
-    nx.json.encode({
+    btv.json.encode({
       ["local function"] = {
         prefix = "lf",
         body = { "local function ${1:name}(${2:args})", "\t$0", "end" },
@@ -31,10 +31,10 @@ local function write_collection(dir)
       },
     })
   ))
-  nx.await(
-    nx.fs.write(
+  btv.await(
+    btv.fs.write(
       dir .. "/js.json",
-      nx.json.encode({ log = { prefix = "log", body = "console.log($1)" } })
+      btv.json.encode({ log = { prefix = "log", body = "console.log($1)" } })
     )
   )
   return dir
@@ -49,21 +49,21 @@ local function by_trigger(list, trigger)
   return nil
 end
 
-nx.test.describe("nxvim-snippets.vscode loader", function()
-  nx.test.it("indexes a collection's manifest per language", function()
-    local dir = write_collection(nx.test.tempdir())
+btv.test.describe("bemtvi-snippets.vscode loader", function()
+  btv.test.it("indexes a collection's manifest per language", function()
+    local dir = write_collection(btv.test.tempdir())
 
-    local index = nx.await(vscode.discover({ dir }, false))
+    local index = btv.await(vscode.discover({ dir }, false))
 
-    nx.test.expect(index["lua"][1]).to_be(dir .. "/lua.json")
-    nx.test.expect(index["javascript"][1]).to_be(dir .. "/js.json")
+    btv.test.expect(index["lua"][1]).to_be(dir .. "/lua.json")
+    btv.test.expect(index["javascript"][1]).to_be(dir .. "/js.json")
   end)
 
-  nx.test.it("maps a VSCode language id onto nxvim's filetype name", function()
-    local dir = nx.test.tempdir()
-    nx.await(nx.fs.write(
+  btv.test.it("maps a VSCode language id onto bemtvi's filetype name", function()
+    local dir = btv.test.tempdir()
+    btv.await(btv.fs.write(
       dir .. "/package.json",
-      nx.json.encode({
+      btv.json.encode({
         contributes = {
           snippets = {
             { language = "shellscript", path = "sh.json" },
@@ -74,31 +74,31 @@ nx.test.describe("nxvim-snippets.vscode loader", function()
       })
     ))
 
-    local index = nx.await(vscode.discover({ dir }, false))
+    local index = btv.await(vscode.discover({ dir }, false))
 
-    -- nxvim names these filetypes `bash` / `c_sharp` / `tsx`; indexed under VSCode's
+    -- bemtvi names these filetypes `bash` / `c_sharp` / `tsx`; indexed under VSCode's
     -- own ids they would never match a buffer and the snippets would never show.
-    nx.test.expect(index["bash"] ~= nil).to_be(true)
-    nx.test.expect(index["c_sharp"] ~= nil).to_be(true)
-    nx.test.expect(index["tsx"] ~= nil).to_be(true)
+    btv.test.expect(index["bash"] ~= nil).to_be(true)
+    btv.test.expect(index["c_sharp"] ~= nil).to_be(true)
+    btv.test.expect(index["tsx"] ~= nil).to_be(true)
   end)
 
-  nx.test.it("reads + normalizes the indexed files (string / list prefix + body)", function()
-    local dir = write_collection(nx.test.tempdir())
-    local index = nx.await(vscode.discover({ dir }, false))
+  btv.test.it("reads + normalizes the indexed files (string / list prefix + body)", function()
+    local dir = write_collection(btv.test.tempdir())
+    local index = btv.await(vscode.discover({ dir }, false))
 
-    local lua = nx.await(vscode.load_paths(index["lua"]))
+    local lua = btv.await(vscode.load_paths(index["lua"]))
     local lf = by_trigger(lua, "lf")
-    nx.test.expect(lf ~= nil).to_be(true)
+    btv.test.expect(lf ~= nil).to_be(true)
     -- The list `body` was joined with newlines.
-    nx.test.expect(lf.body).to_be("local function ${1:name}(${2:args})\n\t$0\nend")
+    btv.test.expect(lf.body).to_be("local function ${1:name}(${2:args})\n\t$0\nend")
 
     -- The list `prefix` fanned out into two triggers sharing one body.
-    nx.test.expect(by_trigger(lua, "req") ~= nil).to_be(true)
-    nx.test.expect(by_trigger(lua, "require") ~= nil).to_be(true)
+    btv.test.expect(by_trigger(lua, "req") ~= nil).to_be(true)
+    btv.test.expect(by_trigger(lua, "require") ~= nil).to_be(true)
 
     -- The other language's file is a separate read.
-    local js = nx.await(vscode.load_paths(index["javascript"]))
-    nx.test.expect(by_trigger(js, "log") ~= nil).to_be(true)
+    local js = btv.await(vscode.load_paths(index["javascript"]))
+    btv.test.expect(by_trigger(js, "log") ~= nil).to_be(true)
   end)
 end)

@@ -3,7 +3,7 @@
 -- The snippet body references variables like `$TM_FILENAME` or `$CURRENT_YEAR`; the
 -- parser leaves them as `var` nodes and the session resolves them here at expand time
 -- (they depend on runtime context — the file, the selection, the clock). Every read is
--- through the public `nx.*` surface (buffer name, buffer options, registers, `os.date`),
+-- through the public `btv.*` surface (buffer name, buffer options, registers, `os.date`),
 -- so this stays a pure-Lua plugin. An unknown variable resolves to `nil`, so the parser
 -- falls back to the variable's `${VAR:default}` text (or empty) — matching VSCode.
 --
@@ -33,12 +33,12 @@ local function path_parts(path)
 end
 
 -- The buffer a resolution reads from: the caller's override, else the current one.
--- Resolved to a real number so the `nx.bo` / `nx.buf` reads below never depend on the
+-- Resolved to a real number so the `btv.bo` / `btv.buf` reads below never depend on the
 -- "0 means current" alias.
 local function target_buf(ctx)
   local buf = ctx.buf
   if buf == nil or buf == 0 then
-    return nx.buf.current()
+    return btv.buf.current()
   end
   return buf
 end
@@ -46,7 +46,7 @@ end
 -- The project root a path is reported relative to: the workspace root when this session
 -- has one, else the editor's working directory.
 local function root_dir()
-  local ws = nx.workspace and nx.workspace.dir and nx.workspace.dir()
+  local ws = btv.workspace and btv.workspace.dir and btv.workspace.dir()
   if ws and ws ~= "" then
     return ws
   end
@@ -66,8 +66,8 @@ end
 -- Insert mode the caret rests one byte PAST the word being typed, so it clamps to the
 -- last byte of the line — which is that word, the one VSCode means.
 local function word_under_cursor()
-  local line = nx.current_line() or ""
-  local col = (nx.cursor.get()[2] or 0) + 1 -- 1-based byte index
+  local line = btv.current_line() or ""
+  local col = (btv.cursor.get()[2] or 0) + 1 -- 1-based byte index
   if col > #line then
     col = #line
   end
@@ -89,7 +89,7 @@ end
 -- comment has an empty `right` (`-- %s`); a wrapping template (`/* %s */`) has both.
 -- Returns nil when the buffer has no commentstring at all.
 local function comment_parts(buf)
-  local cs = nx.bo[buf].commentstring
+  local cs = btv.bo[buf].commentstring
   if type(cs) ~= "string" or cs == "" then
     return nil
   end
@@ -157,46 +157,46 @@ local DATE = {
 -- The current file / cursor family.
 local FILE = {
   TM_FILENAME = function(ctx)
-    local _dir, file = path_parts(nx.buf.name(target_buf(ctx)))
+    local _dir, file = path_parts(btv.buf.name(target_buf(ctx)))
     return file
   end,
   TM_FILENAME_BASE = function(ctx)
-    local _dir, _file, base = path_parts(nx.buf.name(target_buf(ctx)))
+    local _dir, _file, base = path_parts(btv.buf.name(target_buf(ctx)))
     return base
   end,
   TM_DIRECTORY = function(ctx)
-    local dir = path_parts(nx.buf.name(target_buf(ctx)))
+    local dir = path_parts(btv.buf.name(target_buf(ctx)))
     return dir
   end,
   TM_FILEPATH = function(ctx)
-    return nx.buf.name(target_buf(ctx)) or ""
+    return btv.buf.name(target_buf(ctx)) or ""
   end,
   -- The file path relative to the workspace root / cwd — the whole point of the
   -- variable (VSCode's absolute form is TM_FILEPATH).
   RELATIVE_FILEPATH = function(ctx)
-    return relative_to(nx.buf.name(target_buf(ctx)) or "", root_dir())
+    return relative_to(btv.buf.name(target_buf(ctx)) or "", root_dir())
   end,
   TM_LINE_INDEX = function(ctx)
-    return tostring((ctx.line or nx.cursor.get()[1] or 1) - 1)
+    return tostring((ctx.line or btv.cursor.get()[1] or 1) - 1)
   end,
   TM_LINE_NUMBER = function(ctx)
-    return tostring(ctx.line or nx.cursor.get()[1] or 1)
+    return tostring(ctx.line or btv.cursor.get()[1] or 1)
   end,
   TM_CURRENT_LINE = function(ctx)
-    return ctx.current_line or nx.current_line() or ""
+    return ctx.current_line or btv.current_line() or ""
   end,
   TM_CURRENT_WORD = function(ctx)
     return ctx.word or word_under_cursor()
   end,
   TM_SELECTED_TEXT = function(ctx)
-    return ctx.selection or nx.reg.get('"') or ""
+    return ctx.selection or btv.reg.get('"') or ""
   end,
 }
 
 -- Workspace / clipboard / comment / misc.
 local MISC = {
   CLIPBOARD = function()
-    return nx.reg.get("+") or nx.reg.get('"') or ""
+    return btv.reg.get("+") or btv.reg.get('"') or ""
   end,
   WORKSPACE_FOLDER = function()
     return root_dir()
@@ -229,7 +229,7 @@ local MISC = {
     return nil
   end,
   UUID = function()
-    return nx.uuid()
+    return btv.uuid()
   end,
   -- Genuinely random, per VSCode: six decimal digits. (Deriving these from the clock
   -- made every `$RANDOM` in one expansion identical, and repeatable within a second.)

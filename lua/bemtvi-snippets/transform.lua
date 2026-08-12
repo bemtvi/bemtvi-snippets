@@ -3,7 +3,7 @@
 -- or a variable's value) and `format` builds the replacement, with capture references
 -- and case operations.
 --
--- The regex itself runs on nxvim's native engine (`nx.regex`, the vendored regexp
+-- The regex itself runs on bemtvi's native engine (`btv.regex`, the vendored regexp
 -- engine) rather than anything hand-rolled — VSCode's syntax is JS/PCRE-ish and maps
 -- onto the "pcre" dialect. Only the `format` mini-language (`$1`, `${1:/upcase}`,
 -- `${1:+if}`, `${1:?a:b}`, …) is interpreted here.
@@ -76,7 +76,7 @@ local function render_format(format, caps)
   return table.concat(out)
 end
 
--- Compiled-regex cache. `nx.regex` compiles in Rust on every call, and a TABSTOP
+-- Compiled-regex cache. `btv.regex` compiles in Rust on every call, and a TABSTOP
 -- transform is re-applied on every keystroke as its source changes — so the same
 -- handful of patterns would be recompiled continuously while you type. Keyed by
 -- pattern + the flags that change the compile. Bounded: a snippet body's patterns are
@@ -90,7 +90,7 @@ local function compile(pattern, ignorecase)
   local key = (ignorecase and "i\0" or "\0") .. pattern
   local re = cache[key]
   if re == nil then
-    re = nx.regex(pattern, { engine = "pcre", ignorecase = ignorecase })
+    re = btv.regex(pattern, { engine = "pcre", ignorecase = ignorecase })
     if cache_n >= CACHE_MAX then
       cache, cache_n = {}, 0
     end

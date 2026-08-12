@@ -1,4 +1,4 @@
--- The completion-menu integration: a `nx.complete.source` that offers the registered
+-- The completion-menu integration: a `btv.complete.source` that offers the registered
 -- snippets for the current buffer's filetype, and expands the chosen one through the
 -- session on accept.
 --
@@ -7,14 +7,14 @@
 -- callback drives `session.expand` over exactly that range. Nothing snippet-specific
 -- touches the core completion engine.
 
-local session = require("nxvim-snippets.session")
+local session = require("bemtvi-snippets.session")
 
 local M = {}
 
 -- The current buffer's filetype (via the option mirror), or "".
 local function buf_ft(buf)
   local ok, ft = pcall(function()
-    return nx.bo[buf].filetype
+    return btv.bo[buf].filetype
   end)
   return (ok and ft) or ""
 end
@@ -78,24 +78,24 @@ end
 -- (a no-op once cached), so those snippets appear without any up-front bulk read.
 -- `min_chars` is the source's own prefix gate (how many chars before snippets show,
 -- default 2).
--- Registering **activates** the source — it joins the live `nx.complete` engine on its
--- own, so the user never lists it in `nx.complete.setup{ sources }` (that list is only
+-- Registering **activates** the source — it joins the live `btv.complete` engine on its
+-- own, so the user never lists it in `btv.complete.setup{ sources }` (that list is only
 -- for overriding these defaults). Idempotent-ish: calling again re-registers the
 -- same-named source (the engine keeps the latest).
 function M.register(get, min_chars, ensure)
-  nx.complete.source({
+  btv.complete.source({
     -- NOT "snippets" — that name is a reserved core built-in source.
-    name = "nxvim-snippets",
+    name = "bemtvi-snippets",
     -- A small per-source bias added to a row's fuzzy score (the merge is fuzzy-first,
     -- then this bias breaks near-ties) — matching the built-in `snippets` source, so an
     -- equally-good snippet trigger edges out a buffer word without burying a clearly
     -- better buffer match. Override per entry with
-    -- `nx.complete.setup{ sources = { { "nxvim-snippets", priority = N } } }`.
+    -- `btv.complete.setup{ sources = { { "bemtvi-snippets", priority = N } } }`.
     priority = 5,
     -- The source's own prefix gate (`snip.setup{ min_chars = … }`, default 2): snippets
     -- show from this many typed chars, so short triggers like `lf` open the menu without
     -- a buffer word's longer wait. Override per entry with
-    -- `nx.complete.setup{ sources = { { "nxvim-snippets", min_chars = N } } }`.
+    -- `btv.complete.setup{ sources = { { "bemtvi-snippets", min_chars = N } } }`.
     min_chars = min_chars or 2,
     -- Snippets are cheap in-memory data, so there's nothing to debounce — offer them
     -- as soon as the prefix changes (no lag before the row appears).
@@ -104,18 +104,18 @@ function M.register(get, min_chars, ensure)
     -- expansion preview is built once per selection rather than once per candidate per
     -- keystroke.
     resolve = function(item)
-      return nx.promise.resolve(M.preview_doc(item._snippet, item._ft))
+      return btv.promise.resolve(M.preview_doc(item._snippet, item._ft))
     end,
     complete = function(ctx)
       -- Offer every snippet for the filetype; the engine's fuzzy matcher ranks them
       -- against `ctx.prefix` and merges them with the other sources. Returning a promise
-      -- (from `nx.async`) tells the engine to wait for it before settling this gen, so
+      -- (from `btv.async`) tells the engine to wait for it before settling this gen, so
       -- the first completion in a filetype can lazily read that language's collection
       -- files before offering — every later keystroke resolves it instantly (cached).
       local ft = buf_ft(ctx.buf)
-      return nx.async(function()
+      return btv.async(function()
         if ensure then
-          nx.await(ensure(ft))
+          btv.await(ensure(ft))
         end
         for _, snip in ipairs(get(ft)) do
           ctx.push(item_for(snip, ft))

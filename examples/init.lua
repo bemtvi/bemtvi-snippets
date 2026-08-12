@@ -1,19 +1,19 @@
--- Runnable example for nxvim-snippets.
+-- Runnable example for bemtvi-snippets.
 --
---   NXVIM_CONFIG=examples nxvim examples/sample.lua
+--   BEMTVI_CONFIG=examples bemtvi examples/sample.lua
 --
 -- Each section has a *type-this / see-that* note.
 
 -- Load the plugin straight from this repo (a local-dev spec: `dir` is never cloned, and
--- adding it to the runtimepath is what makes `require("nxvim-snippets")` resolve and
+-- adding it to the runtimepath is what makes `require("bemtvi-snippets")` resolve and
 -- auto-sources `plugin/`). A real config would instead use
--- `{ "davidrios/nxvim-snippets", config = ... }` + :PluginSync.
-nx.plugins({
+-- `{ "davidrios/bemtvi-snippets", config = ... }` + :PluginSync.
+btv.plugins({
   {
-    name = "nxvim-snippets",
+    name = "bemtvi-snippets",
     dir = vim.fn.expand("<sfile>:p:h:h"), -- the repo root (this file's grandparent dir)
     config = function()
-      local snip = require("nxvim-snippets")
+      local snip = require("bemtvi-snippets")
 
       -- 1. Enable the engine + jump keys (<C-j>/<C-l> next, <C-k>/<C-h> previous by
       --    default; <C-h> only on a kitty-keyboard-protocol terminal).
@@ -26,7 +26,7 @@ nx.plugins({
       --    `min_chars` is honored PER SOURCE: snippets offer from 2 chars (the plugin's
       --    default, `snip.setup{ min_chars = … }`) so short triggers like `lf` open the
       --    menu, while buffer words here wait for 3.
-      nx.complete.setup({ sources = { { "buffer", min_chars = 3 } } })
+      btv.complete.setup({ sources = { { "buffer", min_chars = 3 } } })
 
       -- 3. Register a few Lua snippets.
       --    TYPE (in the sample buffer, insert mode):  lf

@@ -1,5 +1,5 @@
 -- Load a VSCode-format snippet collection (the friendly-snippets shape) entirely in
--- Lua, over the async `nx.fs` seam — no core support for the format.
+-- Lua, over the async `btv.fs` seam — no core support for the format.
 --
 -- Layout: a `package.json` with `contributes.snippets = [{ language, path }, ...]`,
 -- and per-language `*.json` files mapping `"name" -> { prefix, body, description }`.
@@ -8,9 +8,9 @@
 
 local M = {}
 
--- VSCode language id -> nxvim filetype, where they DIFFER. Identity otherwise, so most
+-- VSCode language id -> bemtvi filetype, where they DIFFER. Identity otherwise, so most
 -- languages need no entry — but a language listed here under VSCode's own id would
--- never match a buffer, and its snippets would silently never appear. (nxvim detects
+-- never match a buffer, and its snippets would silently never appear. (bemtvi detects
 -- `.sh` as `bash`, `.cs` as `c_sharp`, `.tsx` as `tsx` and `.jsx` as `javascript`.)
 local LANG_TO_FT = {
   shellscript = "bash",
@@ -50,7 +50,7 @@ end
 -- Parse one snippet JSON file's contents into a flat snippet list. Raises on malformed
 -- JSON — `load_paths` folds that into its per-file skip.
 local function parse_file(raw)
-  local data = nx.json.decode(raw)
+  local data = btv.json.decode(raw)
   local list = {}
   if type(data) == "table" then
     for name, entry in pairs(data) do
@@ -67,13 +67,13 @@ end
 -- then covers each equally (decoding outside the chain used to escape as a hard error
 -- and sink the whole sweep).
 local function read_json(path)
-  return nx.fs.read_text(path):next(function(raw)
-    return nx.json.decode(raw)
+  return btv.fs.read_text(path):next(function(raw)
+    return btv.json.decode(raw)
   end)
 end
 
 -- Walk `dir`'s package.json `contributes.snippets` into a flat list of
--- `{ ft = <nxvim filetype>, path = <absolute snippet-file path> }`. A `contributes`
+-- `{ ft = <bemtvi filetype>, path = <absolute snippet-file path> }`. A `contributes`
 -- entry that names several languages fans out into one record per filetype. `dir` is
 -- the collection root; the returned paths are `dir`-relative resolved to absolute.
 -- Returns nil for a package.json that is not a snippet collection (no
@@ -118,7 +118,7 @@ local function collection_roots(dirs, include_rtp)
   end
   if include_rtp then
     -- Each match is a `<rtp-entry>/package.json`; strip the filename to the root.
-    for _, pkgpath in ipairs(nx.runtime_file("package.json", true) or {}) do
+    for _, pkgpath in ipairs(btv.runtime_file("package.json", true) or {}) do
       add((pkgpath:gsub("[/\\]package%.json$", "")))
     end
   end
@@ -135,13 +135,13 @@ end
 -- to `load_paths` (called on demand when a completion first needs that filetype).
 --
 -- Sources of collection roots (unioned, de-duplicated): the LIVE runtimepath when
--- `include_rtp` is truthy (`nx.runtime_file`, how a friendly-snippets checkout added as
+-- `include_rtp` is truthy (`btv.runtime_file`, how a friendly-snippets checkout added as
 -- a plugin dependency is found automatically), plus every root in the explicit `dirs`
 -- list. A package.json that is not a snippet collection (no `contributes.snippets`), is
 -- unreadable, or is not valid JSON is silently skipped — discovery never fails loud on
 -- one bad entry.
 function M.discover(dirs, include_rtp)
-  return nx.async(function()
+  return btv.async(function()
     -- Every manifest read is dispatched BEFORE the first await, so the reads run
     -- concurrently rather than one round trip per runtimepath entry.
     local pending = {}
@@ -156,7 +156,7 @@ function M.discover(dirs, include_rtp)
 
     local index, seen = {}, {}
     for _, item in ipairs(pending) do
-      for _, rec in ipairs(manifest_records(item.dir, nx.await(item.promise)) or {}) do
+      for _, rec in ipairs(manifest_records(item.dir, btv.await(item.promise)) or {}) do
         local key = rec.ft .. "\0" .. rec.path
         if not seen[key] then
           seen[key] = true
@@ -172,16 +172,16 @@ end
 
 -- load_paths(paths) -> promise of a flat snippet list. Read + parse the given snippet
 -- files (the ones `discover` indexed for a filetype) and merge their snippets. A file
--- that is unreadable OR malformed is reported via `nx.notify` and skipped, so one bad
+-- that is unreadable OR malformed is reported via `btv.notify` and skipped, so one bad
 -- file doesn't sink the language's whole load.
 function M.load_paths(paths)
-  return nx.async(function()
+  return btv.async(function()
     -- Dispatch every read up front (concurrent), then fold the results in order.
     local pending = {}
     for _, path in ipairs(paths or {}) do
       pending[#pending + 1] = {
         path = path,
-        promise = nx.fs
+        promise = btv.fs
           .read_text(path)
           :next(function(raw)
             return { snippets = parse_file(raw) }
@@ -194,9 +194,9 @@ function M.load_paths(paths)
 
     local list = {}
     for _, item in ipairs(pending) do
-      local result = nx.await(item.promise)
+      local result = btv.await(item.promise)
       if result.err then
-        nx.notify("nxvim-snippets: could not load " .. item.path .. ": " .. result.err, "warn")
+        btv.notify("bemtvi-snippets: could not load " .. item.path .. ": " .. result.err, "warn")
       else
         for _, s in ipairs(result.snippets) do
           list[#list + 1] = s

@@ -2,32 +2,32 @@
 -- accept, expands into a live tabstop session (via the item's on_accept). This is the
 -- full user-facing path — type a trigger, accept, land in the snippet.
 
-local snip = require("nxvim-snippets")
-local source = require("nxvim-snippets.source")
+local snip = require("bemtvi-snippets")
+local source = require("bemtvi-snippets.source")
 
-nx.test.describe("nxvim-snippets completion row docs", function()
-  nx.test.it("previews the body as markdown fenced with the buffer's filetype", function()
+btv.test.describe("bemtvi-snippets completion row docs", function()
+  btv.test.it("previews the body as markdown fenced with the buffer's filetype", function()
     local doc = source.preview_doc({ trigger = "lf", body = "local $1" }, "lua")
-    nx.test.expect(doc).to_be("```lua\nlocal $1\n```")
+    btv.test.expect(doc).to_be("```lua\nlocal $1\n```")
   end)
 
-  nx.test.it("leads with the description when the snippet has one", function()
+  btv.test.it("leads with the description when the snippet has one", function()
     local snippet = { trigger = "lf", body = "local $1", description = "a local" }
-    nx.test.expect(source.preview_doc(snippet, "lua")).to_be("a local\n\n```lua\nlocal $1\n```")
+    btv.test.expect(source.preview_doc(snippet, "lua")).to_be("a local\n\n```lua\nlocal $1\n```")
   end)
 end)
 
-nx.test.describe("nxvim-snippets completion source", function()
-  nx.test.before_each(function()
+btv.test.describe("bemtvi-snippets completion source", function()
+  btv.test.before_each(function()
     snip.abort()
     snip._byft = {}
     -- `snip.setup` registers the source, which AUTO-JOINS the engine — the user just
     -- enables completion (here with its buffer default) and never routes the source.
     snip.setup({})
-    nx.complete.setup({})
+    btv.complete.setup({})
   end)
 
-  nx.test.it("offers a filetype's snippet and expands it on accept", function(t)
+  btv.test.it("offers a filetype's snippet and expands it on accept", function(t)
     snip.add("lua", { { trigger = "forr", body = "for ${1:i} = 1, ${2:n} do$0 end" } })
     t:cmd("enew")
     t:cmd("set filetype=lua")
@@ -39,15 +39,15 @@ nx.test.describe("nxvim-snippets completion source", function()
     t:wait_for(function()
       return snip.active()
     end)
-    nx.test.expect(t:line(1)).to_be("for i = 1, n do end")
+    btv.test.expect(t:line(1)).to_be("for i = 1, n do end")
   end)
 
-  nx.test.it("auto-joins an engine that never listed it", function(t)
+  btv.test.it("auto-joins an engine that never listed it", function(t)
     -- The plugin registers its source in `snip.setup` (before_each). Here the completion
     -- engine is set up with ONLY `buffer` — the snippet source is never named — yet it
     -- still contributes and expands, because registering a source activates it. This is
-    -- the whole point: a user enables `nx.complete` and the snippet source just works.
-    nx.complete.setup({ sources = { { "buffer" } } })
+    -- the whole point: a user enables `btv.complete` and the snippet source just works.
+    btv.complete.setup({ sources = { { "buffer" } } })
     snip.add("lua", { { trigger = "forr", body = "for ${1:i} = 1, ${2:n} do$0 end" } })
     t:cmd("enew")
     t:cmd("set filetype=lua")
@@ -58,10 +58,10 @@ nx.test.describe("nxvim-snippets completion source", function()
     t:wait_for(function()
       return snip.active()
     end)
-    nx.test.expect(t:line(1)).to_be("for i = 1, n do end")
+    btv.test.expect(t:line(1)).to_be("for i = 1, n do end")
   end)
 
-  nx.test.it("does not offer snippets from another filetype", function(t)
+  btv.test.it("does not offer snippets from another filetype", function(t)
     snip.add("python", { { trigger = "defp", body = "def $1(): $0" } })
     t:cmd("enew")
     t:cmd("set filetype=lua") -- a lua buffer
@@ -70,23 +70,23 @@ nx.test.describe("nxvim-snippets completion source", function()
     t:feed("<C-n>") -- try to select a row (there is none for this filetype)
     t:feed("<C-y>") -- accept — but nothing snippet-y is there
     -- No snippet session ever starts (the python snippet isn't offered here).
-    nx.test.expect(snip.active()).to_be(false)
+    btv.test.expect(snip.active()).to_be(false)
   end)
 
-  nx.test.it("lazily loads an added collection on first completion", function(t)
+  btv.test.it("lazily loads an added collection on first completion", function(t)
     -- The full auto-load path THROUGH the source: add a temp VSCode collection, and
     -- prove its snippet is discovered + read on the first completion in that filetype and
     -- offered in the menu (nothing was preloaded).
-    local dir = nx.test.tempdir()
-    nx.await(nx.fs.write(
+    local dir = btv.test.tempdir()
+    btv.await(btv.fs.write(
       dir .. "/package.json",
-      nx.json.encode({
+      btv.json.encode({
         contributes = { snippets = { { language = "lua", path = "lua.json" } } },
       })
     ))
-    nx.await(nx.fs.write(
+    btv.await(btv.fs.write(
       dir .. "/lua.json",
-      nx.json.encode({
+      btv.json.encode({
         ["for range"] = { prefix = "forr", body = "for ${1:i} = 1, ${2:n} do$0 end" },
       })
     ))
@@ -94,10 +94,10 @@ nx.test.describe("nxvim-snippets completion source", function()
     snip._collections = {}
     snip.setup({})
     snip.add_collection(dir)
-    nx.complete.setup({})
+    btv.complete.setup({})
 
     -- The snippet lives only on disk — nothing is registered until a completion asks.
-    nx.test.expect(#snip.get("lua")).to_be(0)
+    btv.test.expect(#snip.get("lua")).to_be(0)
 
     t:cmd("enew")
     t:cmd("set filetype=lua")
@@ -109,10 +109,10 @@ nx.test.describe("nxvim-snippets completion source", function()
     t:wait_for(function()
       return snip.active()
     end)
-    nx.test.expect(t:line(1)).to_be("for i = 1, n do end")
+    btv.test.expect(t:line(1)).to_be("for i = 1, n do end")
   end)
 
-  nx.test.it("renders a selected row's docs lazily, not for every candidate", function(t)
+  btv.test.it("renders a selected row's docs lazily, not for every candidate", function(t)
     -- The row carries no inline `doc`: the engine asks the source's `resolve` for the
     -- ONE row the user lands on. Spy on the preview builder to prove both halves —
     -- nothing is rendered while merely offering, and selecting fires it.
@@ -127,12 +127,12 @@ nx.test.describe("nxvim-snippets completion source", function()
       t:cmd("set filetype=lua")
       t:feed("ifo")
       t:sleep(30)
-      nx.test.expect(#calls).to_be(0) -- offering rendered no docs at all
+      btv.test.expect(#calls).to_be(0) -- offering rendered no docs at all
       t:feed("<C-n>") -- select the row → the engine resolves its docs
       t:wait_for(function()
         return #calls > 0
       end)
-      nx.test.expect(calls[1]).to_be("forr")
+      btv.test.expect(calls[1]).to_be("forr")
     end)
     source.preview_doc = real
     if not ok then
@@ -140,11 +140,11 @@ nx.test.describe("nxvim-snippets completion source", function()
     end
   end)
 
-  nx.test.it("a snippet trigger outranks a fuzzy buffer word", function(t)
+  btv.test.it("a snippet trigger outranks a fuzzy buffer word", function(t)
     -- Both `buffer` and the auto-joined snippet source are active; the snippet source's
     -- priority (5) must rank its rows above plain buffer words (0) so an exact trigger
     -- isn't buried. Only `buffer` is listed — the snippet source joins on its own.
-    nx.complete.setup({ sources = { { "buffer", min_chars = 2 } } })
+    btv.complete.setup({ sources = { { "buffer", min_chars = 2 } } })
     snip.add("lua", { { trigger = "log", body = "LOG($1)$0" } })
     t:cmd("enew")
     t:cmd("set filetype=lua")
@@ -159,7 +159,7 @@ nx.test.describe("nxvim-snippets completion source", function()
     t:wait_for(function()
       return snip.active()
     end)
-    nx.test.expect(snip.active()).to_be(true)
-    nx.test.expect(t:line(1)).to_be("alongside LOG()")
+    btv.test.expect(snip.active()).to_be(true)
+    btv.test.expect(t:line(1)).to_be("alongside LOG()")
   end)
 end)

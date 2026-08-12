@@ -65,7 +65,7 @@ local function read_name(r)
   return r.s:sub(start, r.i - 1)
 end
 
-local transform = require("nxvim-snippets.transform")
+local transform = require("bemtvi-snippets.transform")
 
 local parse_nodes -- forward declaration (recursive with the braced parsers)
 
@@ -101,7 +101,7 @@ local function read_regex(r)
   while true do
     local b = peek(r)
     if b == nil then
-      error("nxvim-snippets: unterminated transform regex")
+      error("bemtvi-snippets: unterminated transform regex")
     elseif b == 92 then
       advance(r)
       local e = advance(r)
@@ -131,7 +131,7 @@ local function read_format_text(r, stops)
   while true do
     local b = peek(r)
     if b == nil then
-      error("nxvim-snippets: unterminated transform format")
+      error("bemtvi-snippets: unterminated transform format")
     elseif set[b] then
       advance(r)
       break
@@ -165,7 +165,7 @@ local function parse_format_group(r)
   if index == nil then
     -- `${:/upcase}` names no capture group: rendering it would quietly produce
     -- nothing, so refuse it instead of mis-expanding.
-    error("nxvim-snippets: transform format group `${...}` needs a capture number")
+    error("bemtvi-snippets: transform format group `${...}` needs a capture number")
   end
   local b = advance(r) -- } or :
   if b == 125 then
@@ -176,7 +176,7 @@ local function parse_format_group(r)
       advance(r)
       local op = read_name(r)
       if advance(r) ~= 125 then
-        error("nxvim-snippets: malformed transform `${N:/op}`")
+        error("bemtvi-snippets: malformed transform `${N:/op}`")
       end
       return { kind = "group", index = index, op = op }
     elseif c == 43 then -- :+if
@@ -194,7 +194,7 @@ local function parse_format_group(r)
       return { kind = "group", index = index, else_text = read_format_text(r, { 125 }) }
     end
   end
-  error("nxvim-snippets: malformed transform format group")
+  error("bemtvi-snippets: malformed transform format group")
 end
 
 -- Parse the `format` part (positioned just after the second `/`), up to the unescaped
@@ -210,7 +210,7 @@ local function parse_format(r)
   while true do
     local b = peek(r)
     if b == nil then
-      error("nxvim-snippets: unterminated transform format")
+      error("bemtvi-snippets: unterminated transform format")
     elseif b == 47 then
       advance(r)
       break
@@ -254,7 +254,7 @@ local function read_options(r)
   while true do
     local b = peek(r)
     if b == nil then
-      error("nxvim-snippets: unterminated transform (missing `}`)")
+      error("bemtvi-snippets: unterminated transform (missing `}`)")
     elseif b == 125 then
       advance(r)
       break
@@ -281,7 +281,7 @@ local function parse_choices(r)
   while true do
     local b = peek(r)
     if b == nil then
-      error("nxvim-snippets: unterminated choice `${N|...`")
+      error("bemtvi-snippets: unterminated choice `${N|...`")
     elseif b == 92 then -- backslash: \, \| \\ inside a choice
       advance(r)
       local e = advance(r)
@@ -315,13 +315,13 @@ local function parse_braced(r)
     elseif nb == 124 then -- |  choice
       local choices = parse_choices(r)
       if advance(r) ~= 125 then -- expect the closing }
-        error("nxvim-snippets: choice `${N|...|` must be followed by `}`")
+        error("bemtvi-snippets: choice `${N|...|` must be followed by `}`")
       end
       return { kind = "tabstop", index = index, children = {}, choices = choices }
     elseif nb == 47 then -- /  transform
       return { kind = "tabstop", index = index, children = {}, transform = parse_transform(r) }
     else
-      malformed("nxvim-snippets: malformed `${" .. index .. "...}` (unexpected byte)")
+      malformed("bemtvi-snippets: malformed `${" .. index .. "...}` (unexpected byte)")
     end
   elseif is_name_start(b) then
     local name = read_name(r)
@@ -334,10 +334,10 @@ local function parse_braced(r)
     elseif nb == 47 then -- /  variable transform
       return { kind = "var", name = name, children = {}, transform = parse_transform(r) }
     else
-      malformed("nxvim-snippets: malformed `${" .. name .. "...}` (unexpected byte)")
+      malformed("bemtvi-snippets: malformed `${" .. name .. "...}` (unexpected byte)")
     end
   end
-  malformed("nxvim-snippets: malformed `${...}` (expected a tabstop number or variable name)")
+  malformed("bemtvi-snippets: malformed `${...}` (expected a tabstop number or variable name)")
 end
 
 -- Parse a `$...` construct positioned just past the `$`. Returns one node, or a text
@@ -386,7 +386,7 @@ function parse_nodes(r, in_brace)
     local b = peek(r)
     if b == nil then
       if in_brace then
-        error("nxvim-snippets: unterminated `${...}`")
+        error("bemtvi-snippets: unterminated `${...}`")
       end
       break
     elseif b == 125 and in_brace then -- } closes this brace group
@@ -416,7 +416,7 @@ end
 -- parse(body) -> AST (a node list). Raises on malformed / unsupported input.
 function M.parse(body)
   if type(body) ~= "string" then
-    error("nxvim-snippets.parser: body must be a string, got " .. type(body))
+    error("bemtvi-snippets.parser: body must be a string, got " .. type(body))
   end
   return parse_nodes(reader(body), false)
 end
@@ -472,7 +472,7 @@ end
 --   `{ [index] = { { start_byte, end_byte, transform? }, ... } }` — every occurrence's
 --   byte span in `text` (0-based, end-exclusive) plus its transform spec when it's a
 --   `${N/re/fmt/}` occurrence (so the session recomputes it live). Byte offsets,
---   matching nxvim's text model.
+--   matching bemtvi's text model.
 function M.layout(ast, resolve)
   local defaults = {}
   collect_defaults(ast, defaults)

@@ -1,34 +1,34 @@
-<!-- DO NOT EDIT doc/nxvim-snippets.txt BY HAND. It is generated from this file by
+<!-- DO NOT EDIT doc/bemtvi-snippets.txt BY HAND. It is generated from this file by
 panvimdoc — run `scripts/gen-vimdoc.sh` after editing. -->
 
-A snippet engine for nxvim, built entirely on the native `nx.*` plugin API — no snippet syntax lives
+A snippet engine for bemtvi, built entirely on the native `btv.*` plugin API — no snippet syntax lives
 in the editor core. It loads VSCode-format snippet collections (e.g. friendly-snippets), offers them
 in the completion menu, and expands the chosen one into a live tabstop session with mirrors,
 choices, and transforms.
 
-It is the nxvim answer to LuaSnip / vsnip: the same LSP snippet-body grammar and the same
-VSCode-collection loading, re-expressed in nxvim's idiom and standing entirely on generic core
+It is the bemtvi answer to LuaSnip / vsnip: the same LSP snippet-body grammar and the same
+VSCode-collection loading, re-expressed in bemtvi's idiom and standing entirely on generic core
 primitives (see How it works).
 
-<!-- Passed through verbatim so `:help nxvim-snippets` lands on this page
+<!-- Passed through verbatim so `:help bemtvi-snippets` lands on this page
      (panvimdoc derives per-section tags but no bare project tag). -->
 ```vimdoc
-                                                               *nxvim-snippets*
+                                                               *bemtvi-snippets*
 ```
 
 # Install
 
-Put the repo on your `runtimepath` — with `nx.plugins`, or any plugin manager.
-`plugin/nxvim-snippets.lua` auto-sources on load and registers the completion source and the jump
+Put the repo on your `runtimepath` — with `btv.plugins`, or any plugin manager.
+`plugin/bemtvi-snippets.lua` auto-sources on load and registers the completion source and the jump
 keymaps with defaults, so the engine works before you call anything:
 
 ```lua
-nx.plugins({
+btv.plugins({
   {
-    "davidrios/nxvim-snippets",
+    "davidrios/bemtvi-snippets",
     deps = { "rafamadriz/friendly-snippets" },
     config = function()
-      require("nxvim-snippets").setup({})
+      require("bemtvi-snippets").setup({})
     end,
   },
 })
@@ -40,13 +40,13 @@ get a large snippet library — it lands on the runtimepath, and discovery finds
 # Quick start
 
 ```lua
-local snip = require("nxvim-snippets")
+local snip = require("bemtvi-snippets")
 snip.setup({})
 
 -- Enable the completion engine however you like — the snippet
 -- source joins it automatically (registering a source activates
 -- it; there is nothing to route):
-nx.complete.setup({ sources = { { "buffer" } } })
+btv.complete.setup({ sources = { { "buffer" } } })
 
 -- Add snippets inline …
 snip.add("lua", {
@@ -91,15 +91,15 @@ A collection is the standard VSCode layout: a `package.json` whose `contributes.
 `{ prefix, body, description }`. Both `prefix` and `body` may be a string or a list of strings; a
 list `prefix` fans out into one snippet per trigger.
 
-Each VSCode language id becomes the nxvim filetype of the same name, except where the two differ —
-`shellscript` is nxvim's `bash`, `csharp` is `c_sharp`, `typescriptreact` is `tsx`, and
-`javascriptreact` folds into `javascript` (nxvim has no separate JSX filetype). A collection
+Each VSCode language id becomes the bemtvi filetype of the same name, except where the two differ —
+`shellscript` is bemtvi's `bash`, `csharp` is `c_sharp`, `typescriptreact` is `tsx`, and
+`javascriptreact` folds into `javascript` (bemtvi has no separate JSX filetype). A collection
 reachable twice — on the runtimepath AND passed to `add_collection` — is swept once, not offered
 twice.
 
 Nothing in a collection is allowed to break the sweep: a `package.json` that is not a snippet
 collection, is unreadable, or is not valid JSON is skipped silently, and a snippet file that is
-unreadable or malformed is reported with `nx.notify` and skipped — so one bad file does not sink a
+unreadable or malformed is reported with `btv.notify` and skipped — so one bad file does not sink a
 whole language, and one bad manifest does not sink discovery.
 
 # Body grammar
@@ -122,7 +122,7 @@ A malformed or unsupported body raises — it is never silently mis-expanded.
 
 ## Transforms
 
-Transforms run the regex on nxvim's native engine (`nx.regex`, the `pcre` dialect) and build the
+Transforms run the regex on bemtvi's native engine (`btv.regex`, the `pcre` dialect) and build the
 replacement from the `format` mini-language:
 
 ```
@@ -159,7 +159,7 @@ UUID  RANDOM  RANDOM_HEX
 A few are worth spelling out:
 
 - `WORKSPACE_FOLDER` is the workspace root when the session
-  has one (`nx.workspace.dir()`), else the editor's working
+  has one (`btv.workspace.dir()`), else the editor's working
   directory; `WORKSPACE_NAME` is that directory's base name.
 - `RELATIVE_FILEPATH` is the file relative to that same root
   (`TM_FILEPATH` is the absolute one). A file outside the root
@@ -203,8 +203,8 @@ Expanding starts a tabstop session — one at a time, like the native engine.
 
 # Completion
 
-The engine registers a `nx.complete` source named `nxvim-snippets`. Registering ACTIVATES it — it
-joins the live `nx.complete` engine on its own, even if you called `nx.complete.setup{}` before
+The engine registers a `btv.complete` source named `bemtvi-snippets`. Registering ACTIVATES it — it
+joins the live `btv.complete` engine on its own, even if you called `btv.complete.setup{}` before
 loading this plugin, so you never list it in `sources`.
 
 Its defaults: `priority = 5` (a small bias that breaks near-ties against buffer words without burying
@@ -214,15 +214,15 @@ a clearly better match), `min_chars = 2` (short triggers like `lf` open the menu
 List it in `sources` only to override those:
 
 ```lua
-nx.complete.setup({
+btv.complete.setup({
   sources = {
     { "buffer" },
-    { "nxvim-snippets", min_chars = 3, priority = 20 },
+    { "bemtvi-snippets", min_chars = 3, priority = 20 },
   },
 })
 ```
 
-Use `nx.complete.setup{ exclusive = true }` if you would rather opt out of auto-join and control the
+Use `btv.complete.setup{ exclusive = true }` if you would rather opt out of auto-join and control the
 source list yourself.
 
 A snippet row reads `Snippet` in the right-aligned kind column, and selecting it previews the
@@ -234,16 +234,16 @@ collection costs nothing extra while you type.
 # API
 
 ```lua
-local snip = require("nxvim-snippets")
+local snip = require("bemtvi-snippets")
 ```
 
 `snip.setup(opts)` — (re)configure: register the completion source (it
-auto-joins `nx.complete`) and install the jump keymaps. Calling it again is a full
+auto-joins `btv.complete`) and install the jump keymaps. Calling it again is a full
 reconfigure — discovery re-runs from scratch (replacing what it had read, never
 duplicating it), while snippets you registered with `snip.add` are kept.
 
 ```lua
-require("nxvim-snippets").setup({
+require("bemtvi-snippets").setup({
   -- The jump keys, mapped in BOTH Insert and Select mode (a selected
   -- placeholder must be jumpable too). Either may be one key or a LIST
   -- of keys that all jump the same way. `false` skips installing one,
@@ -266,9 +266,9 @@ require("nxvim-snippets").setup({
 
 `<C-h>` is in the defaults but is installed **only on a terminal that can actually
 send it**. Without the kitty keyboard protocol a terminal transmits `<C-h>` as the
-`<BS>` byte, and nxvim folds both the key and a mapping's LHS the same way — so
+`<BS>` byte, and bemtvi folds both the key and a mapping's LHS the same way — so
 mapping `<C-h>` there really maps Backspace, and typing a correction inside a tabstop
-would jump instead of deleting. The plugin checks `nx.ui.caps().keyboard_protocol` on
+would jump instead of deleting. The plugin checks `btv.ui.caps().keyboard_protocol` on
 `UIEnter` and skips the key when the answer is no; `<C-j>` / `<C-k>` / `<C-l>` are
 unaffected and always installed. The same gate applies to `<C-i>`, `<C-m>` and `<C-[>`
 if you configure one of those. Enable the protocol in your terminal (kitty, foot,
@@ -300,24 +300,24 @@ The rest of the surface:
 
 # How it works
 
-nxvim's core stays bare: it grows generic text-editing seams, and features like this snippet engine
+bemtvi's core stays bare: it grows generic text-editing seams, and features like this snippet engine
 are plain Lua on top. These primitives make it possible — none of them mentions "snippet":
 
 ```
-nx.buf.set_text        splice the expansion over the trigger
+btv.buf.set_text        splice the expansion over the trigger
                        word; update mirrors inline
 extmark gravity        right_gravity=false / end_right_gravity=true
                        anchor each tabstop as a growing range, so
                        typed text is swallowed, not pushed outside
-nx.buf.attach on_bytes react to each edit to keep mirrors in sync;
+btv.buf.attach on_bytes react to each edit to keep mirrors in sync;
                        tear down on a reload
-nx.complete on_accept  the completion row that expands instead of
+btv.complete on_accept  the completion row that expands instead of
                        inserting literal text
-nx.win.select_range    land on a tabstop — a placeholder is
+btv.win.select_range    land on a tabstop — a placeholder is
                        SELECTED, an empty stop degrades to a caret
 ```
 
-See `docs/specs/2026-07-21-snippet-engine-primitives.md` in the nxvim repo for the design.
+See `docs/specs/2026-07-21-snippet-engine-primitives.md` in the bemtvi repo for the design.
 
 The module map:
 
@@ -326,7 +326,7 @@ parser.lua     the LSP/VSCode body grammar → AST → text + tabstop spans
 variables.lua  VSCode variable resolution ($TM_FILENAME, $CURRENT_YEAR, …)
 transform.lua  the ${N/regex/format/opts} format mini-language
 session.lua    the tabstop session (expand / jump / mirror sync)
-source.lua     the nx.complete.source integration (on_accept)
+source.lua     the btv.complete.source integration (on_accept)
 vscode.lua     discover VSCode collections + lazily load them per filetype
 ```
 
@@ -334,7 +334,7 @@ vscode.lua     discover VSCode collections + lazily load them per filetype
 
 Against the full friendly-snippets collection (9,213 snippets across 128 filetypes): all 9,213
 parse, and 9,211 (99.98%) lay out and expand. The 2 that do not use a regex lookbehind
-(`(?<=…)`) in a transform, which nxvim's regex engine (the Rust `regex` crate) cannot compile — those
+(`(?<=…)`) in a transform, which bemtvi's regex engine (the Rust `regex` crate) cannot compile — those
 fail LOUD with a clear error rather than mis-expanding.
 
 # Trying it locally
@@ -342,7 +342,7 @@ fail LOUD with a clear error rather than mis-expanding.
 This repo ships a runnable demo — a few Lua snippets plus a scratch buffer:
 
 ```sh
-NXVIM_CONFIG=examples nxvim examples/sample.lua
+BEMTVI_CONFIG=examples bemtvi examples/sample.lua
 ```
 
 (run from a checkout of this repo). In insert mode type `lf`, `req`, `log`, or `today`, accept the
@@ -351,7 +351,7 @@ row with `<C-y>`, and jump with `<C-j>` / `<C-k>` (or `<C-l>` / `<C-h>`).
 # Tests
 
 ```sh
-nxvim --test-plugin .
+bemtvi --test-plugin .
 ```
 
 Covers the parser and layout, transforms, variable resolution, the VSCode loader and its lazy

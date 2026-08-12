@@ -1,34 +1,34 @@
--- nxvim-snippets — a snippet engine for nxvim, built entirely on the native `nx.*`
+-- bemtvi-snippets — a snippet engine for bemtvi, built entirely on the native `btv.*`
 -- plugin API. It loads VSCode-format snippet collections (friendly-snippets), offers
 -- them in the completion menu, and expands the chosen one into a live tabstop session —
 -- all pure Lua over five generic core primitives, with no snippet syntax baked into the
 -- editor:
 --
---   nx.buf.set_text        precise range edit (splice the expansion / update mirrors)
+--   btv.buf.set_text        precise range edit (splice the expansion / update mirrors)
 --   extmark gravity        growing tabstop ranges (right_gravity=false/end_right=true)
---   nx.buf.attach on_bytes react to edits → keep mirrors in sync; tear down on reload
---   nx.complete on_accept  the completion row that expands instead of inserting text
---   nx.win.set_cursor      jump the caret between tabstops
+--   btv.buf.attach on_bytes react to edits → keep mirrors in sync; tear down on reload
+--   btv.complete on_accept  the completion row that expands instead of inserting text
+--   btv.win.set_cursor      jump the caret between tabstops
 --
 -- Module map:
 --   parser.lua     the LSP/VSCode snippet-body grammar → AST → text + tabstop spans
 --   variables.lua  VSCode variable resolution ($TM_FILENAME, $CURRENT_YEAR, …)
 --   session.lua    the tabstop session (expand / jump / mirror sync) on the primitives
---   source.lua     the nx.complete.source integration (offer + on_accept expand)
+--   source.lua     the btv.complete.source integration (offer + on_accept expand)
 --   vscode.lua     discover VSCode collections + lazily load them per filetype
 --
 -- Quick start (init.lua):
---   local snip = require("nxvim-snippets")
+--   local snip = require("bemtvi-snippets")
 --   snip.setup({})                  -- registers + auto-joins the completion source
---   nx.complete.setup({})           -- enable completion however you like; snippets join
+--   btv.complete.setup({})           -- enable completion however you like; snippets join
 --   snip.add("lua", { { trigger = "fn",
 --     body = "local function ${1:name}(${2:args})\n\t$0\nend" } })
 --   snip.add_collection("/path/to/collection")  -- optional: an off-runtimepath one
 
-local session = require("nxvim-snippets.session")
-local source = require("nxvim-snippets.source")
-local vscode = require("nxvim-snippets.vscode")
-local parser = require("nxvim-snippets.parser")
+local session = require("bemtvi-snippets.session")
+local source = require("bemtvi-snippets.source")
+local vscode = require("bemtvi-snippets.vscode")
+local parser = require("bemtvi-snippets.parser")
 
 local M = {}
 
@@ -60,7 +60,7 @@ M.config = {
   jump_prev = { "<C-k>", "<C-h>" },
   -- The completion source's own prefix gate: snippets show from this many typed chars.
   -- Kept low (2) so short triggers like `lf` open the menu. The source auto-joins the
-  -- `nx.complete` engine with this gate — no need to list it in `nx.complete.setup`.
+  -- `btv.complete` engine with this gate — no need to list it in `btv.complete.setup`.
   min_chars = 2,
   -- Auto-discover VSCode snippet collections (e.g. friendly-snippets) on the
   -- runtimepath. Put such a collection on the runtimepath — as a plugin dependency in
@@ -107,7 +107,7 @@ function M.add_collection(dirs)
   if type(dirs) == "string" then
     dirs = { dirs }
   elseif type(dirs) ~= "table" then
-    error("nxvim-snippets.add_collection: expected a dir string or list, got " .. type(dirs))
+    error("bemtvi-snippets.add_collection: expected a dir string or list, got " .. type(dirs))
   end
   for _, dir in ipairs(dirs) do
     M._collections[#M._collections + 1] = dir
@@ -143,11 +143,11 @@ end
 -- Returns a promise the completion source awaits before offering rows; a no-op promise
 -- when there is nothing to discover.
 function M._ensure_lazy(ft)
-  return nx.async(function()
+  return btv.async(function()
     if not M._discovery_on() then
       return
     end
-    local index = nx.await(M._ensure_index())
+    local index = btv.await(M._ensure_index())
     -- Load the buffer's own filetype and the always-merged `"all"` scope. Each key's
     -- read happens at most once thanks to the `_lazy[key]` promise memo.
     for _, key in ipairs({ ft, "all" }) do
@@ -160,7 +160,7 @@ function M._ensure_lazy(ft)
         end)
       end
       if M._lazy[key] then
-        nx.await(M._lazy[key])
+        btv.await(M._lazy[key])
       end
     end
   end)()
@@ -171,18 +171,18 @@ end
 -- string `body`, `description` is optional. Fails loud on a bad shape (no silent skip).
 function M._store(store, ft, list)
   if type(ft) ~= "string" then
-    error("nxvim-snippets.add: filetype must be a string, got " .. type(ft))
+    error("bemtvi-snippets.add: filetype must be a string, got " .. type(ft))
   end
   if type(list) ~= "table" then
-    error("nxvim-snippets.add: expected a list of { trigger, body } for '" .. ft .. "'")
+    error("bemtvi-snippets.add: expected a list of { trigger, body } for '" .. ft .. "'")
   end
   local bucket = store[ft] or {}
   for i, s in ipairs(list) do
     if type(s) ~= "table" or type(s.trigger) ~= "string" then
-      error("nxvim-snippets.add: entry " .. i .. " needs a string `trigger`")
+      error("bemtvi-snippets.add: entry " .. i .. " needs a string `trigger`")
     end
     if type(s.body) ~= "string" then
-      error("nxvim-snippets.add: entry '" .. s.trigger .. "' needs a string `body`")
+      error("bemtvi-snippets.add: entry '" .. s.trigger .. "' needs a string `body`")
     end
     bucket[#bucket + 1] = { trigger = s.trigger, body = s.body, description = s.description }
   end
@@ -230,9 +230,9 @@ end
 -- session. The manual counterpart of accepting a completion row. Raises on a malformed
 -- / unsupported body.
 function M.expand(body)
-  local pos = nx.cursor.get() -- { row (1-based), col (0-based byte) }
+  local pos = btv.cursor.get() -- { row (1-based), col (0-based byte) }
   local r, c = (pos[1] or 1) - 1, pos[2] or 0
-  session.expand(nx.buf.current(), r, c, r, c, body)
+  session.expand(btv.buf.current(), r, c, r, c, body)
 end
 
 -- Parse a body without expanding (exposed for tests / tooling). Raises on bad input.
@@ -261,9 +261,9 @@ function M.abort()
 end
 
 -- The four chords a terminal without the kitty keyboard protocol cannot deliver: it
--- sends the named key's byte instead, and nxvim folds the mapping's LHS the same way,
+-- sends the named key's byte instead, and bemtvi folds the mapping's LHS the same way,
 -- so mapping one of these on a legacy terminal really maps `<BS>` / `<Tab>` / `<CR>` /
--- `<Esc>`. Keyed by the canonical spellings `nx.keymap.set` accepts, lowercased.
+-- `<Esc>`. Keyed by the canonical spellings `btv.keymap.set` accepts, lowercased.
 local PROTOCOL_ONLY = {
   ["<c-h>"] = true,
   ["<c-i>"] = true,
@@ -277,7 +277,7 @@ local function key_deliverable(key)
   if not PROTOCOL_ONLY[key:lower()] then
     return true
   end
-  return nx.ui.caps().keyboard_protocol
+  return btv.ui.caps().keyboard_protocol
 end
 
 -- The keys this plugin has actually mapped, so a protocol-only chord can be taken back
@@ -295,12 +295,12 @@ local function map_jump(keys, action, desc)
   end
   for _, key in ipairs(type(keys) == "table" and keys or { keys }) do
     if key_deliverable(key) then
-      nx.keymap.set({ "i", "s" }, key, function()
+      btv.keymap.set({ "i", "s" }, key, function()
         action()
       end, { desc = desc })
       installed[key] = true
     elseif installed[key] then
-      nx.keymap.del({ "i", "s" }, key)
+      btv.keymap.del({ "i", "s" }, key)
       installed[key] = nil
     end
   end
@@ -312,8 +312,8 @@ local function install_jump_keys()
   -- Map the jump keys in BOTH Insert and Select mode: a placeholder with a default is
   -- landed on in Select mode (so typing replaces it), and the jump keys must work there
   -- too — otherwise <C-j> on a selected placeholder would fall through to Normal.
-  map_jump(M.config.jump_next, M.jump_next, "nxvim-snippets: jump to next tabstop")
-  map_jump(M.config.jump_prev, M.jump_prev, "nxvim-snippets: jump to previous tabstop")
+  map_jump(M.config.jump_next, M.jump_next, "bemtvi-snippets: jump to next tabstop")
+  map_jump(M.config.jump_prev, M.jump_prev, "bemtvi-snippets: jump to previous tabstop")
 end
 
 -- `UIEnter` is armed once per session, not once per `setup` — the handler reads
@@ -352,7 +352,7 @@ function M.setup(opts)
   -- chord like `<C-h>` can't be judged yet: re-run once the client is known.
   if not M._uienter_armed then
     M._uienter_armed = true
-    nx.on("UIEnter", {}, function()
+    btv.on("UIEnter", {}, function()
       install_jump_keys()
     end)
   end
