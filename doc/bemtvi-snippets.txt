@@ -1,24 +1,24 @@
-*bemtvi-snippets.txt*                                A snippet engine for bemtvi
+*bemtvi-snippets.txt*                              A snippet engine for bemtvi
 
 ==============================================================================
-Table of Contents                           *bemtvi-snippets-table-of-contents*
+Table of Contents                          *bemtvi-snippets-table-of-contents*
 
-1. Install                                            |bemtvi-snippets-install|
-2. Quick start                                    |bemtvi-snippets-quick-start|
-3. Collections                                    |bemtvi-snippets-collections|
-4. Body grammar                                  |bemtvi-snippets-body-grammar|
-  - Transforms                        |bemtvi-snippets-body-grammar-transforms|
-  - Variables                          |bemtvi-snippets-body-grammar-variables|
-5. The session                                    |bemtvi-snippets-the-session|
-6. Completion                                      |bemtvi-snippets-completion|
-7. API                                                    |bemtvi-snippets-api|
-8. How it works                                  |bemtvi-snippets-how-it-works|
-9. Coverage                                          |bemtvi-snippets-coverage|
-10. Trying it locally                       |bemtvi-snippets-trying-it-locally|
-11. Tests                                               |bemtvi-snippets-tests|
+1. Install                                           |bemtvi-snippets-install|
+2. Quick start                                   |bemtvi-snippets-quick-start|
+3. Collections                                   |bemtvi-snippets-collections|
+4. Body grammar                                 |bemtvi-snippets-body-grammar|
+  - Transforms                       |bemtvi-snippets-body-grammar-transforms|
+  - Variables                         |bemtvi-snippets-body-grammar-variables|
+5. The session                                   |bemtvi-snippets-the-session|
+6. Completion                                     |bemtvi-snippets-completion|
+7. API                                                   |bemtvi-snippets-api|
+8. How it works                                 |bemtvi-snippets-how-it-works|
+9. Coverage                                         |bemtvi-snippets-coverage|
+10. Trying it locally                      |bemtvi-snippets-trying-it-locally|
+11. Tests                                              |bemtvi-snippets-tests|
 
-A snippet engine for bemtvi, built entirely on the native `btv.*` plugin API —
-no snippet syntax lives in the editor core. It loads VSCode-format snippet
+A snippet engine for bemtvi, built entirely on the native `btv.*` plugin API
+— no snippet syntax lives in the editor core. It loads VSCode-format snippet
 collections (e.g. friendly-snippets), offers them in the completion menu, and
 expands the chosen one into a live tabstop session with mirrors, choices, and
 transforms.
@@ -31,7 +31,7 @@ standing entirely on generic core primitives (see How it works).
 
 
 ==============================================================================
-1. Install                                            *bemtvi-snippets-install*
+1. Install                                           *bemtvi-snippets-install*
 
 Put the repo on your `runtimepath` — with `btv.plugins`, or any plugin
 manager. `plugin/bemtvi-snippets.lua` auto-sources on load and registers the
@@ -56,7 +56,7 @@ and discovery finds it (see Collections).
 
 
 ==============================================================================
-2. Quick start                                    *bemtvi-snippets-quick-start*
+2. Quick start                                   *bemtvi-snippets-quick-start*
 
 >lua
     local snip = require("bemtvi-snippets")
@@ -86,7 +86,7 @@ jump to the next / previous tabstop (configurable — see `setup()`).
 
 
 ==============================================================================
-3. Collections                                    *bemtvi-snippets-collections*
+3. Collections                                   *bemtvi-snippets-collections*
 
 The easiest way to get a big snippet library is to add a VSCode-format
 collection such as friendly-snippets
@@ -120,19 +120,19 @@ snippet per trigger.
 Each VSCode language id becomes the bemtvi filetype of the same name, except
 where the two differ — `shellscript` is bemtvi's `bash`, `csharp` is
 `c_sharp`, `typescriptreact` is `tsx`, and `javascriptreact` folds into
-`javascript` (bemtvi has no separate JSX filetype). A collection reachable twice
-— on the runtimepath AND passed to `add_collection` — is swept once, not
-offered twice.
+`javascript` (bemtvi has no separate JSX filetype). A collection reachable
+twice — on the runtimepath AND passed to `add_collection` — is swept once,
+not offered twice.
 
 Nothing in a collection is allowed to break the sweep: a `package.json` that is
 not a snippet collection, is unreadable, or is not valid JSON is skipped
 silently, and a snippet file that is unreadable or malformed is reported with
-`btv.notify` and skipped — so one bad file does not sink a whole language, and
-one bad manifest does not sink discovery.
+`btv.notify` and skipped — so one bad file does not sink a whole language,
+and one bad manifest does not sink discovery.
 
 
 ==============================================================================
-4. Body grammar                                  *bemtvi-snippets-body-grammar*
+4. Body grammar                                 *bemtvi-snippets-body-grammar*
 
 The LSP / VSCode snippet syntax:
 
@@ -151,7 +151,7 @@ The LSP / VSCode snippet syntax:
 A malformed or unsupported body raises — it is never silently mis-expanded.
 
 
-TRANSFORMS                            *bemtvi-snippets-body-grammar-transforms*
+TRANSFORMS                           *bemtvi-snippets-body-grammar-transforms*
 
 Transforms run the regex on bemtvi's native engine (`btv.regex`, the `pcre`
 dialect) and build the replacement from the `format` mini-language:
@@ -171,7 +171,7 @@ as you type the source tabstop; a variable transform is applied once, at
 expand.
 
 
-VARIABLES                              *bemtvi-snippets-body-grammar-variables*
+VARIABLES                             *bemtvi-snippets-body-grammar-variables*
 
 Resolved at expand time, from the buffer, its options, and the clock:
 
@@ -212,7 +212,7 @@ VSCode.
 
 
 ==============================================================================
-5. The session                                    *bemtvi-snippets-the-session*
+5. The session                                   *bemtvi-snippets-the-session*
 
 Expanding starts a tabstop session — one at a time, like the native engine.
 
@@ -239,12 +239,12 @@ Expanding starts a tabstop session — one at a time, like the native engine.
 
 
 ==============================================================================
-6. Completion                                      *bemtvi-snippets-completion*
+6. Completion                                     *bemtvi-snippets-completion*
 
-The engine registers a `btv.complete` source named `bemtvi-snippets`. Registering
-ACTIVATES it — it joins the live `btv.complete` engine on its own, even if you
-called `btv.complete.setup{}` before loading this plugin, so you never list it
-in `sources`.
+The engine registers a `btv.complete` source named `bemtvi-snippets`.
+Registering ACTIVATES it — it joins the live `btv.complete` engine on its
+own, even if you called `btv.complete.setup{}` before loading this plugin, so
+you never list it in `sources`.
 
 Its defaults: `priority = 5` (a small bias that breaks near-ties against buffer
 words without burying a clearly better match), `min_chars = 2` (short triggers
@@ -274,7 +274,7 @@ a large collection costs nothing extra while you type.
 
 
 ==============================================================================
-7. API                                                    *bemtvi-snippets-api*
+7. API                                                   *bemtvi-snippets-api*
 
 >lua
     local snip = require("bemtvi-snippets")
@@ -314,9 +314,9 @@ actually send it**. Without the kitty keyboard protocol a terminal transmits
 `<C-h>` as the `<BS>` byte, and bemtvi folds both the key and a mapping's LHS
 the same way — so mapping `<C-h>` there really maps Backspace, and typing a
 correction inside a tabstop would jump instead of deleting. The plugin checks
-`btv.ui.caps().keyboard_protocol` on `UIEnter` and skips the key when the answer
-is no; `<C-j>` / `<C-k>` / `<C-l>` are unaffected and always installed. The
-same gate applies to `<C-i>`, `<C-m>` and `<C-[>` if you configure one of
+`btv.ui.caps().keyboard_protocol` on `UIEnter` and skips the key when the
+answer is no; `<C-j>` / `<C-k>` / `<C-l>` are unaffected and always installed.
+The same gate applies to `<C-i>`, `<C-m>` and `<C-[>` if you configure one of
 those. Enable the protocol in your terminal (kitty, foot, WezTerm, Ghostty,
 recent Alacritty; under tmux, `set -g extended-keys on`) and `<C-h>` starts
 working on the next attach.
@@ -346,7 +346,7 @@ The rest of the surface:
 
 
 ==============================================================================
-8. How it works                                  *bemtvi-snippets-how-it-works*
+8. How it works                                 *bemtvi-snippets-how-it-works*
 
 bemtvi's core stays bare: it grows generic text-editing seams, and features
 like this snippet engine are plain Lua on top. These primitives make it
@@ -382,7 +382,7 @@ The module map:
 
 
 ==============================================================================
-9. Coverage                                          *bemtvi-snippets-coverage*
+9. Coverage                                         *bemtvi-snippets-coverage*
 
 Against the full friendly-snippets collection (9,213 snippets across 128
 filetypes): all 9,213 parse, and 9,211 (99.98%) lay out and expand. The 2 that
@@ -392,7 +392,7 @@ clear error rather than mis-expanding.
 
 
 ==============================================================================
-10. Trying it locally                       *bemtvi-snippets-trying-it-locally*
+10. Trying it locally                      *bemtvi-snippets-trying-it-locally*
 
 This repo ships a runnable demo — a few Lua snippets plus a scratch buffer:
 
@@ -406,7 +406,7 @@ This repo ships a runnable demo — a few Lua snippets plus a scratch buffer:
 
 
 ==============================================================================
-11. Tests                                               *bemtvi-snippets-tests*
+11. Tests                                              *bemtvi-snippets-tests*
 
 >sh
     bemtvi --test-plugin .
