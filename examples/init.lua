@@ -7,7 +7,7 @@
 -- Load the plugin straight from this repo (a local-dev spec: `dir` is never cloned, and
 -- adding it to the runtimepath is what makes `require("bemtvi-snippets")` resolve and
 -- auto-sources `plugin/`). A real config would instead use
--- `{ "davidrios/bemtvi-snippets", config = ... }` + :PluginSync.
+-- `{ "bemtvi/bemtvi-snippets", config = ... }` + :PluginSync.
 btv.plugins({
   {
     name = "bemtvi-snippets",

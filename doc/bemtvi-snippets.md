@@ -25,7 +25,7 @@ keymaps with defaults, so the engine works before you call anything:
 ```lua
 btv.plugins({
   {
-    "davidrios/bemtvi-snippets",
+    "bemtvi/bemtvi-snippets",
     deps = { "rafamadriz/friendly-snippets" },
     config = function()
       require("bemtvi-snippets").setup({})

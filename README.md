@@ -1,6 +1,6 @@
 # bemtvi-snippets
 
-A snippet engine for [bemtvi](https://github.com/davidrios/bemtvi), built **entirely
+A snippet engine for [bemtvi](https://github.com/bemtvi/bemtvi), built **entirely
 on the native `btv.*` plugin API** — no snippet syntax lives in the editor core. It
 loads VSCode-format snippet collections (e.g.
 [friendly-snippets](https://github.com/rafamadriz/friendly-snippets)), offers them in
@@ -22,7 +22,7 @@ it lands on the runtimepath, and discovery finds it lazily, per filetype:
 ```lua
 btv.plugins({
   {
-    "davidrios/bemtvi-snippets",
+    "bemtvi/bemtvi-snippets",
     deps = { "rafamadriz/friendly-snippets" },
     config = function()
       require("bemtvi-snippets").setup({})
