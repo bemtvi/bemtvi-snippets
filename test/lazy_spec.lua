@@ -189,7 +189,9 @@ btv.test.describe("bemtvi-snippets lazy discovery", function()
     reset()
     local dir = btv.test.tempdir()
     btv.await(btv.fs.write(dir .. "/broken.json", "{ nope"))
-    btv.await(btv.fs.write(dir .. "/ok.json", btv.json.encode({ t = { prefix = "ok", body = "ok" } })))
+    btv.await(
+      btv.fs.write(dir .. "/ok.json", btv.json.encode({ t = { prefix = "ok", body = "ok" } }))
+    )
 
     -- `load_paths` reports the bad file and carries on with the rest.
     local list = btv.await(vscode.load_paths({ dir .. "/broken.json", dir .. "/ok.json" }))
