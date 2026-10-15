@@ -11,7 +11,7 @@
 btv.plugins({
   {
     name = "bemtvi-snippets",
-    dir = vim.fn.expand("<sfile>:p:h:h"), -- the repo root (this file's grandparent dir)
+    dir = btv.expand("<sfile>:p:h:h"), -- the repo root (this file's grandparent dir)
     config = function()
       local snip = require("bemtvi-snippets")
 

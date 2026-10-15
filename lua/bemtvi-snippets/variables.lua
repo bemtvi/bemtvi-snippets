@@ -50,7 +50,7 @@ local function root_dir()
   if ws and ws ~= "" then
     return ws
   end
-  return vim.fn.getcwd() or ""
+  return btv.cwd() or ""
 end
 
 -- `path` with `root`'s prefix stripped, when it is under it; the path unchanged
