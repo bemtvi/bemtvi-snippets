@@ -358,9 +358,29 @@ end
 -- `body` expanded (variables resolved via `ctx`), anchor its tabstops, and jump to the
 -- first. `body` may be a string (parsed) or a pre-parsed AST. Any prior session is
 -- ended first. Raises (fail loud) on a malformed / unsupported body.
+--
+-- A body that references `$CLIPBOARD` expands once the clipboard has been read, which
+-- is asynchronous; any other body expands now. A clipboard read that fails (the editor
+-- has none) leaves the variable unknown, so its default applies.
 function M.expand(buf, sr, sc, er, ec, body, ctx)
-  M.finish()
   local ast = type(body) == "string" and parser.parse(body) or body
+  ctx = ctx or {}
+  if ctx.clipboard == nil and variables.uses(ast, "CLIPBOARD") then
+    local function with(clipboard)
+      local c = { clipboard = clipboard }
+      for k, v in pairs(ctx) do
+        if k ~= "clipboard" then
+          c[k] = v
+        end
+      end
+      M.expand(buf, sr, sc, er, ec, ast, c)
+    end
+    btv.clipboard.read():next(with, function()
+      with(false)
+    end)
+    return
+  end
+  M.finish()
   local text, spans = parser.layout(ast, function(name)
     return variables.resolve(name, ctx)
   end)

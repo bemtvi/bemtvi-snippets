@@ -226,8 +226,8 @@ function M.get(ft)
   return out
 end
 
--- Expand `body` (LSP/VSCode snippet syntax) at the cursor right now, starting a tabstop
--- session. The manual counterpart of accepting a completion row. Raises on a malformed
+-- Expand `body` (LSP/VSCode snippet syntax) at the cursor right now (a `$CLIPBOARD` body
+-- once the clipboard has been read), starting a tabstop session. The manual counterpart of accepting a completion row. Raises on a malformed
 -- / unsupported body.
 function M.expand(body)
   local pos = btv.cursor.get() -- { row (1-based), col (0-based byte) }

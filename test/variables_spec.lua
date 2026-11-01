@@ -1,5 +1,6 @@
 -- VSCode variable resolution. Date/clock values are asserted by shape (they change);
--- file/clipboard values are asserted against a known buffer / seeded register.
+-- file values are asserted against a known buffer; CLIPBOARD against the text passed in
+-- (the session reads the clipboard asynchronously, see session_spec.lua).
 
 local variables = require("bemtvi-snippets.variables")
 
@@ -25,9 +26,14 @@ btv.test.describe("bemtvi-snippets.variables", function()
     btv.test.expect(variables.resolve("TM_FILENAME_BASE")).to_be("widget")
   end)
 
-  btv.test.it("reads CLIPBOARD from the + register", function()
-    btv.reg.set("+", "pasted text")
-    btv.test.expect(variables.resolve("CLIPBOARD")).to_be("pasted text")
+  btv.test.it("resolves CLIPBOARD from the text the session read for it", function()
+    btv.test
+      .expect(variables.resolve("CLIPBOARD", { clipboard = "pasted text" }))
+      .to_be("pasted text")
+    -- No clipboard text (none read, or the editor has no clipboard): unknown, so the
+    -- body's `${CLIPBOARD:default}` applies.
+    btv.test.expect(variables.resolve("CLIPBOARD", {})).to_be_nil()
+    btv.test.expect(variables.resolve("CLIPBOARD", { clipboard = false })).to_be_nil()
   end)
 
   btv.test.it("derives TM_CURRENT_WORD from the word under the cursor", function(t)

@@ -4,7 +4,9 @@
 -- parser leaves them as `var` nodes and the session resolves them here at expand time
 -- (they depend on runtime context — the file, the selection, the clock). Every read is
 -- through the public `btv.*` surface (buffer name, buffer options, registers, `os.date`),
--- so this stays a pure-Lua plugin. An unknown variable resolves to `nil`, so the parser
+-- so this stays a pure-Lua plugin. The one exception is `CLIPBOARD`: the clipboard is
+-- read asynchronously (`btv.clipboard.read()`), so the session reads it before laying
+-- the body out and passes the text in as `ctx.clipboard` (see `M.uses`). An unknown variable resolves to `nil`, so the parser
 -- falls back to the variable's `${VAR:default}` text (or empty) — matching VSCode.
 --
 -- Each variable is a FUNCTION in one of the tables below rather than an entry in a
@@ -195,8 +197,10 @@ local FILE = {
 
 -- Workspace / clipboard / comment / misc.
 local MISC = {
-  CLIPBOARD = function()
-    return btv.reg.get("+") or btv.reg.get('"') or ""
+  -- The text the session read for this expansion. `nil` (none read) or `false` (the
+  -- editor has no clipboard) leave it unknown, so `${CLIPBOARD:default}` applies.
+  CLIPBOARD = function(ctx)
+    return ctx.clipboard or nil
   end,
   WORKSPACE_FOLDER = function()
     return root_dir()
@@ -241,8 +245,24 @@ local MISC = {
   end,
 }
 
+-- uses(nodes, name) -> boolean
+--   Whether the parsed body `nodes` references variable `name` anywhere, including
+--   inside a placeholder's or another variable's default.
+function M.uses(nodes, name)
+  for _, n in ipairs(nodes or {}) do
+    if n.kind == "var" and n.name == name then
+      return true
+    end
+    if n.children and M.uses(n.children, name) then
+      return true
+    end
+  end
+  return false
+end
+
 -- resolve(name[, ctx]) -> string | nil
---   `ctx` (optional) carries `{ buf, line, current_line, word, selection }` overrides
+--   `ctx` (optional) carries `{ buf, line, current_line, word, selection, clipboard }`
+--   overrides
 --   the caller can supply; anything absent is read live. Returns nil for an unknown
 --   variable so the parser uses its default.
 function M.resolve(name, ctx)

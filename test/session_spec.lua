@@ -107,6 +107,45 @@ btv.test.describe("bemtvi-snippets session", function()
     btv.test.expect(snip.active()).to_be(false)
   end)
 
+  btv.test.it("expands $CLIPBOARD to the system clipboard's text", function(t)
+    btv.await(btv.clipboard.write("pasted text"))
+    t:cmd("enew")
+    t:feed("i")
+    snip.expand("[$CLIPBOARD]")
+    t:wait_for(function()
+      return t:line(1) == "[pasted text]"
+    end)
+  end)
+
+  btv.test.it("a $CLIPBOARD body still starts its tabstop session", function(t)
+    btv.await(btv.clipboard.write("clip"))
+    t:cmd("enew")
+    t:feed("i")
+    snip.expand("${CLIPBOARD}($1)$0")
+    t:wait_for(function()
+      return snip.active()
+    end)
+    t:feed("x")
+    btv.test.expect(t:line(1)).to_be("clip(x)")
+  end)
+
+  btv.test.it("$CLIPBOARD falls back to its default when there is no clipboard", function(t)
+    local read = btv.clipboard.read
+    btv.clipboard.read = function()
+      return btv.promise.reject("no clipboard")
+    end
+    local ok, err = pcall(function()
+      t:cmd("enew")
+      t:feed("i")
+      snip.expand("<${CLIPBOARD:none}>")
+      t:wait_for(function()
+        return t:line(1) == "<none>"
+      end)
+    end)
+    btv.clipboard.read = read
+    assert(ok, err)
+  end)
+
   btv.test.it("re-indents a multi-line body's continuation lines to the anchor", function(t)
     t:cmd("enew")
     t:feed("i\t") -- the trigger sits after a tab; continuation lines inherit it

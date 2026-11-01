@@ -173,6 +173,11 @@ A few are worth spelling out:
   one (`/* %s */`) defines only the block pair.
 - `RANDOM` (six digits) and `RANDOM_HEX` (six hex digits) are
   genuinely random per occurrence.
+- `CLIPBOARD` is the system clipboard's text. Reading the
+  clipboard is asynchronous (`btv.clipboard.read()`), so a body
+  that uses it expands once the read answers, a moment later.
+  An editor with no clipboard leaves it unknown, so
+  `${CLIPBOARD:default}` applies.
 
 An unknown variable falls back to its `${VAR:default}` (or empty), matching VSCode.
 
@@ -285,8 +290,9 @@ The rest of the surface:
   not on the runtimepath. Safe to call at any time: it invalidates the
   discovery caches, so filetypes already loaded pick the new root up on
   their next completion.
-- `snip.expand(body)` — expand a body at the cursor right now, starting
-  a session. The manual counterpart of accepting a completion row.
+- `snip.expand(body)` — expand a body at the cursor right now (a
+  `$CLIPBOARD` body once the clipboard has been read), starting a
+  session. The manual counterpart of accepting a completion row.
 - `snip.jump_next()` / `snip.jump_prev()` — jump tabstops. Each returns
   whether a session was live, so a custom keymap can fall through when
   it was not.
